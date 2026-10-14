@@ -6,6 +6,7 @@ This is **a platform feasibility module**, not an emulator and not a playable ga
 
 - C++17 compiled using Emscripten 6.0.12 into a real `guest_memory.wasm` plus a JS ES module.
 - 4 KiB physical pages allocated only on writes (no 4 GiB virtual reservation).
+- Fixed MEM1/MEM2 page-pointer tables, configurable guest-page budget, and atomic two-page stores on allocation failure. See [W04 memory audit](MEMORY_AUDIT.md).
 - Read/write 8-, 16- and 32-bit values, big-endian like PowerPC.
 - Mirrors MEM1 and MEM2 addresses using the same physical backing.
 - Detects address wraparound, unmapped access and MMIO; **MMIO is not implemented**.
