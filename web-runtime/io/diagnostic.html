@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>W08 synthetic browser input/audio test</title></head>
+<body><main><h1>Browser I/O diagnostic — synthetic only</h1>
+<p>No game media, no live audio output, no gameplay.</p><pre id="status" data-state="pending">Running synthetic browser I/O checks</pre></main>
+<script type="module">
+import { snapshotGamepad, renderSyntheticTone } from './adapters.mjs';
+const out = document.getElementById('status');
+try {
+  const pad = { connected:true, mapping:'standard', index:2,
+    axes:[0.8,-0.7], buttons:Array.from({length:17},()=>({pressed:false,value:0})) };
+  pad.buttons[0].pressed = true;
+  const input = snapshotGamepad([pad]);
+  if (!input.connected || !input.primary || input.index !== 2 || input.moveX <= 0 || input.moveY >= 0)
+    throw Error('GAMEPAD_RESULT_MISMATCH');
+  if (typeof OfflineAudioContext !== 'function') throw Error('OFFLINE_AUDIO_UNAVAILABLE');
+  const result = await renderSyntheticTone(OfflineAudioContext,
+    { sampleRate:48000, duration:0.125, frequency:440, volume:0.15 });
+  if (result.frames !== 6000 || result.sampleRate !== 48000 ||
+      result.rms < 0.09 || result.rms > 0.12 || result.peak < 0.14 || result.peak > 0.16)
+    throw Error('OFFLINE_AUDIO_RESULT_MISMATCH');
+  out.dataset.state='pass';
+  out.textContent='PASS: synthetic standard gamepad + browser OfflineAudioContext 6000 frames, no speaker output';
+} catch(error) {
+  out.dataset.state='fail';
+  out.textContent='FAIL: '+(error?.message || String(error));
+  console.error('W08 diagnostic failed',error);
+}
+</script></body></html>
