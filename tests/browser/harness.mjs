@@ -58,6 +58,7 @@ export class Cdp {
     this.requestMap = new Map();
     this.contextMap = new Map();
     this.events = [];
+    this.ambiguousLogEntries = []; // unscoped Chrome Log has no loader/request ID
     socket.addEventListener('message', event => this.receive(JSON.parse(event.data)));
     socket.addEventListener('close', () => {
       for (const [id, task] of this.pending) {
@@ -153,14 +154,19 @@ export class Cdp {
     }
     if (method === 'Log.entryAdded' && params.entry?.level === 'error') {
       const url = params.entry.url;
-      // Log entries lack loader IDs; only credit them to a known request URL
-      // in the current navigation, not an unrelated late error from an old page.
-      const candidates = [...this.requestMap.values()].filter(req => req.url === url && req.nav);
-      const owner = candidates.at(-1)?.nav;
-      if (owner) {
-        owner.errors.push('Log: ' + params.entry.text + ' at ' + url);
-        owner.activity = Date.now();
+      // Chrome Log entries have no loader/request ID. The same URL may have
+      // been requested by OLD and NEW loaders. Never guess 'newest request'
+      // for ambiguous errors: Network.responseReceived carries requestId and
+      // remains the authoritative source of failed-HTTP assertions.
+      const owners = new Set([...this.requestMap.values()]
+        .filter(req => req.url === url && req.nav).map(req => req.nav));
+      if (owners.size !== 1) {
+        this.ambiguousLogEntries.push({ url, text: params.entry.text, loaders: owners.size });
+        return;
       }
+      const owner = [...owners][0];
+      owner.errors.push('Log: ' + params.entry.text + ' at ' + url);
+      owner.activity = Date.now();
     }
   }
   send(method, params = {}) {

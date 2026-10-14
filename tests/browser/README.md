@@ -26,6 +26,6 @@ This suite **does not** validate GPU hardware/WebGPU, authentic Wii code executi
 
 ## Expected existing defects
 
-The initial baseline origin/main commit 18665b2 failed 3/9 genuine product assertions. After reviewed W02 + UI patches landed on main (0d97ed2), **all 9/9 tests pass** with assertions unchanged. A separate self-test suite (`node --test tests/browser/harness.test.mjs`) proves navigation loader synchronization, event attribution, timeout causes and child/profile cleanup (4/4). Run both suites before review. Browser checks are scoped by loader/frame ID, lifecycle load event and URL, and the runner waits for a bounded event quiet period.
+The initial baseline origin/main commit 18665b2 failed 3/9 genuine product assertions. After reviewed W02 + UI patches landed on main (0d97ed2), **all 9/9 tests pass** with assertions unchanged. A separate self-test suite (`node --test tests/browser/harness.test.mjs`) proves navigation loader synchronization, event attribution, timeout causes and child/profile cleanup (5/5, including a repeated-resource URL race). Run both suites before review. Browser checks are scoped by loader/frame ID, lifecycle load event and URL, and the runner waits for a bounded event quiet period.
 
 W02's synthetic browser graphics lab is now integrated in main, but remains separate from W06's nine page/WASM smoke checks. Neither suite proves real WebGPU hardware, GX, or original game boot.

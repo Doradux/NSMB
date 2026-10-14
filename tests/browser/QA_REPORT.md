@@ -39,3 +39,10 @@ No changes were made to Mario's main checkout, Luigi's worktree, game image data
 - Runtime errors follow executionContextId; network response errors follow request loaderId, and late log events are attributed by corresponding request URL. A quiet event window follows navigation; Chromium speculative requests may lack terminal events, so pending-request-count-zero is not a hard gate. Unit test injects stale 404 and JS error from previous loader and confirms current navigation stays clean.
 - `stopChild` waits for process exit; Windows has a bounded taskkill fallback; profile removal is retried and surfaced as a cleanup error instead of being silently swallowed. Browser sandbox is only disabled on explicit CI opt-in. Timeout errors retain the last predicate error as `cause`.
 - No Nintendo private assets copied; no authentic game or WebGPU success claimed.
+
+## W06 second-review fix — reused URL race
+
+- Toad's `d06b8f1` second independent review found a synthetic reused-resource race: an old 404 `Log.entryAdded` for `/shared/favicon.ico` was incorrectly applied to the newest loader that requested the same URL.
+- Corrected `Cdp.receive` in `tests/browser/harness.mjs`: a Log-only event without loader/request IDs is assigned ONLY when exactly one navigation owns matching request URL. Ambiguous events are retained in `ambiguousLogEntries` for diagnosis; `Network.responseReceived` remains authoritative (requestId, loaderId) and preserves complete HTTP failure coverage.
+- Added deterministic regression `late Log 404 from reused asset URL cannot falsely fail the next loader` in `harness.test.mjs`.
+- Independent local reruns: `node --test tests/browser/harness.test.mjs` = **5/5 PASS**; `node --test tests/browser/regression.test.mjs` = **9/9 PASS** with all original functional assertions unchanged; **14/14 total**.

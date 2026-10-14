@@ -115,3 +115,29 @@ test('terminating child waits for exit; profile deletion is verifiable', async (
   await removeProfile(profile);
   assert.equal(existsSync(profile), false);
 });
+
+test('late Log 404 from reused asset URL cannot falsely fail the next loader', async () => {
+  const ws = new MockSocket(), cdp = new Cdp(ws);
+  const a = { target: 'http://127.0.0.1/a', loaderId: 'OLD', frameId: 'f',
+    errors: [], httpErrors: [], inflight: new Set(), activity: Date.now() };
+  const b = { target: 'http://127.0.0.1/b', loaderId: 'NEW', frameId: 'f',
+    errors: [], httpErrors: [], inflight: new Set(), activity: Date.now() };
+  cdp.navigations.push(a, b); cdp.current = b;
+  const url = 'http://127.0.0.1/shared/favicon.ico';
+  ws.emit('Network.requestWillBeSent', { requestId: 'old', loaderId: 'OLD',
+    request: { url } });
+  ws.emit('Network.responseReceived', { requestId: 'old',
+    response: { url, status: 404 } });
+  ws.emit('Network.loadingFinished', { requestId: 'old' });
+  ws.emit('Network.requestWillBeSent', { requestId: 'new', loaderId: 'NEW',
+    request: { url } });
+  ws.emit('Network.responseReceived', { requestId: 'new',
+    response: { url, status: 200 } });
+  ws.emit('Network.loadingFinished', { requestId: 'new' });
+  ws.emit('Log.entryAdded', { entry: { level: 'error', url, text: 'late old 404' } });
+  assert.equal(a.httpErrors.length, 1, 'HTTP failures retain correct loader via requestId');
+  assert.deepEqual(b.httpErrors, []);
+  assert.deepEqual(b.errors, [], 'Log-only ambiguous old error must not fail new document');
+  assert.equal(cdp.ambiguousLogEntries.length, 1, 'ambiguous Log is retained as diagnostics');
+  cdp.close();
+});
