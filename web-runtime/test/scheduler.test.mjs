@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import createScheduler from '../dist/scheduler.mjs';
+const wasm = fileURLToPath(new URL('../dist/scheduler.wasm', import.meta.url));
+const fresh = async () => {
+  const instance = await createScheduler({ locateFile: () => wasm });
+  const call = (name, ...args) => instance['_nsmbw_sched_' + name](...args);
+  call('reset');
+  return call;
+};
+
+test('three interleaved Wasm contexts yield, block and resume deterministically', async () => {
+  const c = await fresh();
+  for (const id of [1, 2, 3]) assert.equal(c('spawn', id, 4), 1);
+  const ids = [];
+  for(let n = 0; n < 3; n++) ids.push(c('step'));
+  assert.deepEqual(ids, [1, 2, 3]);
+  assert.equal(c('suspend', 2), 1);
+  assert.equal(c('state', 2), 2);
+  for(let n = 0; n < 6; n++) ids.push(c('step'));
+  assert.deepEqual(ids, [1, 2, 3, 1, 3, 1, 3, 1, 3]);
+  assert.equal(c('step'), -1, 'paused context must not be scheduled');
+  assert.equal(c('ready'), 0);
+  assert.equal(c('paused'), 1);
+  assert.equal(c('done'), 2);
+  assert.equal(c('resume', 2), 1);
+  for(let n = 0; n < 3; n++) ids.push(c('step'));
+  assert.deepEqual(ids, [1,2,3,1,3,1,3,1,3,2,2,2]);
+  assert.equal(c('step'), 0);
+  assert.equal(c('done'), 3);
+  assert.equal(c('paused'), 0);
+  assert.deepEqual([1, 2, 3].map(id => c('pc', id)), [4, 4, 4]);
+  assert.deepEqual([1, 2, 3].map(id => c('value', id)), [410, 810, 1210]);
+  assert.deepEqual([1, 2, 3].map(id => c('yields', id)), [3, 3, 3]);
+  assert.equal(c('trace_length'), 12);
+  assert.deepEqual(Array.from({length:12},(_,i)=>c('trace_at',i)>>8), ids);
+});
+
+test('bounded dispatch handles all-paused state without spinning', async () => {
+  const c = await fresh();
+  assert.equal(c('spawn', 1, 4), 1);
+  assert.equal(c('spawn', 2, 4), 1);
+  assert.equal(c('run_budget', 3), 3);
+  assert.deepEqual([c('pc', 1), c('pc', 2)], [2, 1]);
+  assert.equal(c('suspend', 1), 1);
+  assert.equal(c('suspend', 2), 1);
+  assert.equal(c('run_budget', 1024), 0);
+  assert.equal(c('trace_length'), 3);
+  assert.equal(c('resume', 1), 1);
+  assert.equal(c('run_budget', 2), 2);
+  assert.equal(c('state', 1), 3);
+  assert.equal(c('paused'), 1);
+});
+
+test('guards capacity, invalid resume/stackless state, and resets deterministic trace', async () => {
+  const c = await fresh();
+  assert.equal(c('spawn', 1, 0), 0);
+  assert.equal(c('error'), 1);
+  assert.equal(c('spawn', 1, 33), 0);
+  assert.equal(c('spawn', 0, 4), 0);
+  for (let id = 1; id <= 8; id++) assert.equal(c('spawn',id,1), 1);
+  assert.equal(c('spawn', 9, 1), 0);
+  assert.equal(c('error'), 2);
+  assert.equal(c('spawn', 1, 1), 0);
+  assert.equal(c('resume', 1), 0);
+  assert.equal(c('error'), 3);
+  assert.equal(c('run_budget',0), -2);
+  assert.equal(c('error'), 1);
+  assert.equal(c('run_budget',8), 8);
+  assert.equal(c('done'), 8);
+  assert.equal(c('resume',1),0, 'finished thread cannot be revived');
+  c('reset');
+  assert.equal(c('trace_length'),0);
+  assert.equal(c('done'),0);
+  assert.equal(c('spawn',1,2),1);
+  assert.equal(c('step'),1);
+  assert.equal(c('trace_at',0),257);
+  assert.equal(c('trace_at',2),0);
+  assert.equal(c('error'),1);
+});
