@@ -20,10 +20,12 @@ The current W07 checked operation is `nsmbw_interop_step(srcGuest:u32,destGuest:
 | 0 | Successful checked synthetic guest operation | Commit PC, register and trace |
 | 1 | Unmapped guest RAM | FAULT only this context |
 | 2 | 32-bit address wrap | FAULT only this context |
-| 3 | Sparse quota/allocation failure | FAULT without PC advance; may retry after explicit host quota adjustment |
+| 3 | Sparse quota/allocation failure | FAULT without PC advance; retry requires explicit host quota adjustment **and** a guest-local `loop_retry_safe(id)==1` |
 | 4 | MMIO/GX missing handler or invalid straddle | FAULT, no automatic retry |
 | 5 | Device callback explicitly rejected | FAULT, no automatic retry |
 | 6 | Invalid callback reply | FAULT, no automatic retry |
+
+Device-replay safety: a failed guest instruction can have entered a MMIO callback BEFORE a later RAM quota failure. The current-main W07 ABI lacks `nsmbw_interop_retry_safe()`, so the joined scheduler conservatively marks any step whose source or destination guest word overlaps MMIO as **nonretryable** and stores the result in the guest-local `nsmbw_loop_retry_safe(id)`. It refuses quota retry even if the budget subsequently grows. RAM-only status3 remains safely retryable. With the separately developed W07 phase3 `nsmbw_interop_retry_safe/device_invoked` ABI, W03 can be compiled with `W03_HAS_W07_RETRY_METADATA` and snapshots these flags immediately after a failed W07 call, before switching contexts; this optional ABI is NOT needed by the current-main build and does not claim full device transactionality. A mock MMIO source read then quota failure has a test that proves the callback runs only once.
 
 Status 5/6 are tested using an **entirely separate** `frame_loop_fixture.mjs/.wasm` built with unchanged W07's `interop/test/mock_device_policy.cpp`. It exports `nsmbw_test_policy_install(mask)`, `nsmbw_test_policy_rejection(code)` and associated counters **only for tests**. Production-style normal Wasm has no test hook and never registers a fake device handler. `server.js` exact allowlist only exposes normal `demo.html`, `host.mjs`, `frame_loop.mjs` and `frame_loop.wasm`; it NEVER serves the fixture.
 
@@ -52,11 +54,11 @@ node --test @cases
 
 From authorized `marcos` 2026-10-14:
 - **17/17** original linked host tests plus a red-first regression for wake/resume inside onFrame, on current W07: real Wasm, actual Chrome, Asyncify rejection and lifecycle/fault handling.
-- **5/5** additional Node typed-policy tests for status4/5/6, malformed or rejected device callback, strict no-handler runtime, MMIO/GX boundary and reset.
+- **6/6** additional Node typed-policy tests for status4/5/6, malformed or rejected device callback, strict no-handler runtime, MMIO/GX boundary/reset and rejected retry after an MMIO READ followed by RAM quota failure.
 - **1/1** actual Chrome typed-policy test; browser invokes two compiled Wasm instances (normal and test fixture) and validates guest error codes 4/5/6 across five actual RAF callbacks.
 - **1/1** interactive-site Chrome test for Start/Pause/Resume/Stop/Reset against compiled normal Wasm, exact server allowlist, malformed URLs and private/fixture denial.
 - **2/2** 128-cycle Node + Chrome stress tests on a **single normal linked Wasm instance** per test: 128 resets, 512 real Chrome RAF callbacks, 896 guest operations, 128 isolated MMIO failures, no guest-page or guest-PC leakage.
-- **26/26 expected** across the above suites when Chrome/Brave is present and explicitly run. Any skipped browser test is NOT considered verified.
+- **27/27 expected** across the above suites when Chrome/Brave is present and explicitly run. Any skipped browser test is NOT considered verified.
 
 The code does NOT prove process/linear-Wasm heap OOM safety (`HEAPU8` isn't exposed), frame-accurate Wii timing, native stackful `HostContext::Switch` semantics, ISR/interrupt correctness, translated PPC ABI, actual MMIO/HLE handlers, GX rendering, original boot or gameplay. These remain gated by Mario's private W01 verification and additional independent reviews.
 

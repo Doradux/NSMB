@@ -14,17 +14,39 @@ uint32_t nsmbw_interop_status();
 uint32_t nsmbw_mem_read32(uint32_t address);
 int nsmbw_mem_error();
 void nsmbw_interop_reset();
+#ifdef W03_HAS_W07_RETRY_METADATA
+// Optional ABI from independently developed W07 phase 3, when linked explicitly.
+uint32_t nsmbw_interop_retry_safe();
+uint32_t nsmbw_interop_device_invoked();
+#endif
 }
 namespace {
 constexpr uint32_t CAPACITY = 8, MAX_OPS = 32, TRACE_SIZE = 256;
 constexpr uint32_t READY=1, PAUSED=2, DONE=3, FAULT=4, CANCELLED=5;
 struct Context {
   uint32_t id=0, state=0, pc=0, limit=0, source=0, destination=0, addend=0;
-  uint32_t regA=0, yields=0, error=0;
+  uint32_t regA=0, yields=0, error=0, retrySafe=1;
 };
 std::array<Context,CAPACITY> tasks{};
 std::array<uint32_t,TRACE_SIZE> trace{};
 uint32_t cursor=0, traceCount=0, traceStart=0, traceDropped=0, lastError=0;
+// Conservative current-W07 fallback: a guest device address might already
+// have caused side effects before a later checked RAM allocation fails.
+bool mayTouchDevice(uint32_t address) {
+  const uint64_t begin=address, end=begin+4u;
+  return begin<0xCE000000ull && end>0xCC000000ull;
+}
+uint32_t retrySafeForFault(uint32_t source,uint32_t destination) {
+  const bool unsafeAddress=mayTouchDevice(source)||mayTouchDevice(destination);
+#ifdef W03_HAS_W07_RETRY_METADATA
+  // W07 global metadata MUST be consumed immediately after the failing step,
+  // before any other checked access or context switch resets it.
+  return !unsafeAddress && nsmbw_interop_retry_safe()==1u &&
+         nsmbw_interop_device_invoked()==0u ? 1u : 0u;
+#else
+  return unsafeAddress ? 0u : 1u;
+#endif
+}
 void appendTrace(uint32_t event) {
   if(traceCount<trace.size()){
     trace[(traceStart+traceCount)%TRACE_SIZE]=event;
@@ -53,7 +75,7 @@ int EXPORT nsmbw_loop_spawn(uint32_t id,uint32_t src,uint32_t dst,uint32_t delta
   lastError=0;
   if(!id||id>0xFFFFu||!limit||limit>MAX_OPS||find(id)){lastError=1;return 0;}
   for(auto& t:tasks) if(!t.id) {
-    t={id,READY,0,limit,src,dst,delta,0,0,0};return 1;
+    t={id,READY,0,limit,src,dst,delta,0,0,0,1};return 1;
   }
   lastError=2;return 0;
 }
@@ -86,7 +108,7 @@ int EXPORT nsmbw_loop_reap(uint32_t id) {
 // sparse-page budget. Unsupported MMIO/device faults must remain rejected.
 int EXPORT nsmbw_loop_retry_quota(uint32_t id) {
   lastError=0;auto* t=find(id);
-  if(!t||t->state!=FAULT||t->error!=3u){lastError=3;return 0;}
+  if(!t||t->state!=FAULT||t->error!=3u||t->retrySafe!=1u){lastError=3;return 0;}
   t->state=READY;
   t->error=0;
   return 1;
@@ -102,6 +124,7 @@ int EXPORT nsmbw_loop_tick() {
     cursor=(index+1)%CAPACITY;
     if(!nsmbw_interop_step(t.source,t.destination,t.addend)) {
       t.error=nsmbw_interop_status();
+      t.retrySafe=retrySafeForFault(t.source,t.destination);
       if(!t.error) t.error=1; // do not silently accept invalid W07 ABI
       t.state=FAULT;
       appendTrace((t.id<<16u)|0x8000u|t.pc);
@@ -111,6 +134,7 @@ int EXPORT nsmbw_loop_tick() {
     const int error=nsmbw_mem_error();
     if(error) {
       t.error=static_cast<uint32_t>(error);
+      t.retrySafe=0; // guest write already succeeded; do not replay side effects
       t.state=FAULT;
       appendTrace((t.id<<16u)|0x8000u|t.pc);
       return static_cast<int>(t.id);
@@ -139,6 +163,7 @@ uint32_t EXPORT nsmbw_loop_state(uint32_t id) {auto*t=find(id);return t?t->state
 uint32_t EXPORT nsmbw_loop_pc(uint32_t id) {auto*t=find(id);return t?t->pc:0;}
 uint32_t EXPORT nsmbw_loop_reg_a(uint32_t id) {auto*t=find(id);return t?t->regA:0;}
 uint32_t EXPORT nsmbw_loop_guest_error(uint32_t id) {auto*t=find(id);return t?t->error:0;}
+uint32_t EXPORT nsmbw_loop_retry_safe(uint32_t id) {auto*t=find(id);return t?t->retrySafe:0;}
 uint32_t EXPORT nsmbw_loop_yields(uint32_t id) {auto*t=find(id);return t?t->yields:0;}
 uint32_t EXPORT nsmbw_loop_ready(){return count(READY);}
 uint32_t EXPORT nsmbw_loop_paused(){return count(PAUSED);}
