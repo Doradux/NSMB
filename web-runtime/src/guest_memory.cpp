@@ -1,12 +1,11 @@
 // Copyright (c) 2026. Experimental NSMB Wii browser-port infrastructure.
-// This is a sparse, aliased big-endian Wii RAM backend, not a CPU emulator.
-// DO NOT connect translated guest accesses until memory-access semantics are verified.
+// A bounded sparse MEM1/MEM2 backend, not a CPU emulator or full Wii memory policy.
+// MMIO, DMA, executable-write guards and threading are not implemented.
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <new>
-#include <unordered_map>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -21,82 +20,151 @@ constexpr uint32_t kPageSize = 1u << kPageShift;
 constexpr uint32_t kMem1End = 24u * 1024u * 1024u;
 constexpr uint32_t kMem2Start = 0x10000000u;
 constexpr uint32_t kMem2End = kMem2Start + 128u * 1024u * 1024u;
+constexpr uint32_t kMem1Pages = kMem1End / kPageSize;
+constexpr uint32_t kMem2Pages = (kMem2End - kMem2Start) / kPageSize;
+constexpr uint32_t kTotalPages = kMem1Pages + kMem2Pages;
+
+// Fixed, zero-initialized page-pointer tables cost about 152 KiB on Wasm32
+// (304 KiB on 64-bit native). No rehash or insertion allocation is possible.
+// Only the 4 KiB data pages are allocated lazily. This is single-threaded.
 using Page = std::array<uint8_t, kPageSize>;
-std::unordered_map<uint32_t, std::unique_ptr<Page>> pages;
+std::array<std::unique_ptr<Page>, kMem1Pages> mem1Pages;
+std::array<std::unique_ptr<Page>, kMem2Pages> mem2Pages;
+uint32_t allocatedPages = 0;
+uint32_t pageBudget = kTotalPages;
 int lastError = 0;
 
+// Error 1: unmapped/MMIO, 2: guest address wraps, 3: RAM quota/allocation
+// failure, 4: invalid argument or attempted budget shrink below live pages.
 bool resolve(uint32_t guest, uint32_t& physical) {
-    // MEM1/MEM2 physical, cached and uncached Wii RAM mirrors. A 0x40000000
-    // mirror does not exist, and MMIO is outside the two physical banks.
+    // Wii RAM has physical/cached/uncached aliases, not an arbitrary 4 GiB map.
+    // Reject the 0x40000000 mirror and any non-MEM1/MEM2 location.
     if ((guest & 0xC0000000u) == 0x40000000u) return false;
     physical = guest & 0x3FFFFFFFu;
     return physical < kMem1End ||
            (physical >= kMem2Start && physical < kMem2End);
 }
 
-bool validate(uint32_t address, uint32_t size) {
+bool validate(uint32_t address, uint32_t width) {
     lastError = 0;
-    if (size == 0 || static_cast<uint64_t>(address) + size > 0x100000000ull) {
-        lastError = 2; // Access wraps 32-bit address space.
+    // Width is checked here so this loop remains O(1), even for future callers.
+    if (width != 1 && width != 2 && width != 4) {
+        lastError = 4;
         return false;
     }
-    for (uint32_t n = 0; n < size; ++n) {
+    if (static_cast<uint64_t>(address) + width > 0x100000000ull) {
+        lastError = 2;
+        return false;
+    }
+    for (uint32_t n = 0; n < width; ++n) {
         uint32_t physical = 0;
         if (!resolve(address + n, physical)) {
-            lastError = 1; // Unmapped / MMIO.
+            lastError = 1;
             return false;
         }
     }
     return true;
+}
+
+std::unique_ptr<Page>& pageFor(uint32_t physical) {
+    // Caller must first validate the physical range via resolve.
+    if (physical < kMem1End) return mem1Pages[physical >> kPageShift];
+    return mem2Pages[(physical - kMem2Start) >> kPageShift];
 }
 
 uint8_t readByte(uint32_t address) {
-    uint32_t physical;
-    resolve(address, physical);
-    const auto iter = pages.find(physical >> kPageShift);
-    if (iter == pages.end()) return 0;
-    return (*(iter->second))[physical & (kPageSize - 1)];
-}
-
-bool writeByte(uint32_t address, uint8_t value) {
-    uint32_t physical;
-    resolve(address, physical);
-    const uint32_t pageIndex = physical >> kPageShift;
-    auto& page = pages[pageIndex];
-    if (!page) {
-        page.reset(new (std::nothrow) Page{});
-        if (!page) {
-            lastError = 3; // Allocation failure.
-            return false;
-        }
-    }
-    (*page)[physical & (kPageSize - 1)] = value;
-    return true;
+    uint32_t physical = 0;
+    resolve(address, physical); // validated by read()
+    const auto& page = pageFor(physical);
+    if (!page) return 0;
+    return (*page)[physical & (kPageSize - 1u)];
 }
 
 uint32_t read(uint32_t address, uint32_t width) {
     if (!validate(address, width)) return 0;
     uint32_t result = 0;
     for (uint32_t n = 0; n < width; ++n) {
-        result = (result << 8) | readByte(address + n);
+        result = (result << 8u) | readByte(address + n);
     }
     return result;
 }
 
 int write(uint32_t address, uint32_t width, uint32_t value) {
     if (!validate(address, width)) return 0;
+
+    // A 1/2/4-byte write touches at most two physical 4 KiB pages.
+    // Collect distinct slots so aliased virtual addresses never double-allocate.
+    std::array<std::unique_ptr<Page>*, 2> slots{};
+    uint32_t touched = 0;
     for (uint32_t n = 0; n < width; ++n) {
-        const auto shift = (width - 1u - n) * 8u;
-        if (!writeByte(address + n, static_cast<uint8_t>(value >> shift))) return 0;
+        uint32_t physical = 0;
+        resolve(address + n, physical); // validated by validate()
+        auto* slot = &pageFor(physical);
+        if ((touched > 0 && slots[0] == slot) || (touched > 1 && slots[1] == slot)) continue;
+        if (touched == slots.size()) {
+            lastError = 4; // Defensive check if access widths change.
+            return 0;
+        }
+        slots[touched++] = slot;
+    }
+
+    uint32_t needed = 0;
+    for (uint32_t n = 0; n < touched; ++n) if (!*slots[n]) ++needed;
+    if (needed > pageBudget - allocatedPages) {
+        lastError = 3;
+        return 0;
+    }
+
+    // Reserve every missing page before mutating any page table or guest byte.
+    // A failure releases staged pages automatically and leaves guest RAM intact.
+    std::array<std::unique_ptr<Page>, 2> staging{};
+    for (uint32_t n = 0; n < touched; ++n) {
+        if (!*slots[n]) {
+            staging[n].reset(new (std::nothrow) Page{});
+            if (!staging[n]) {
+                lastError = 3;
+                return 0;
+            }
+        }
+    }
+    for (uint32_t n = 0; n < touched; ++n) {
+        if (staging[n]) {
+            slots[n]->swap(staging[n]);
+            ++allocatedPages;
+        }
+    }
+
+    // No fallible operation remains: a cross-page write is all-or-nothing.
+    for (uint32_t n = 0; n < width; ++n) {
+        uint32_t physical = 0;
+        resolve(address + n, physical);
+        const uint32_t shift = (width - 1u - n) * 8u;
+        (*pageFor(physical))[physical & (kPageSize - 1u)] =
+            static_cast<uint8_t>(value >> shift);
     }
     return 1;
 }
-}  // namespace
+} // namespace
 
 extern "C" {
-void NSMBW_EXPORT nsmbw_mem_reset() { pages.clear(); lastError = 0; }
+void NSMBW_EXPORT nsmbw_mem_reset() {
+    for (auto& page : mem1Pages) page.reset();
+    for (auto& page : mem2Pages) page.reset();
+    allocatedPages = 0;
+    lastError = 0;
+    // Intentionally keep the host-selected budget after a reset.
+}
 int NSMBW_EXPORT nsmbw_mem_error() { return lastError; }
-uint32_t NSMBW_EXPORT nsmbw_mem_pages() { return static_cast<uint32_t>(pages.size()); }
+uint32_t NSMBW_EXPORT nsmbw_mem_pages() { return allocatedPages; }
+int NSMBW_EXPORT nsmbw_mem_set_page_budget(uint32_t maxPages) {
+    if (maxPages > kTotalPages || maxPages < allocatedPages) {
+        lastError = 4;
+        return 0;
+    }
+    pageBudget = maxPages;
+    lastError = 0;
+    return 1;
+}
 uint32_t NSMBW_EXPORT nsmbw_mem_read8(uint32_t address) { return read(address, 1); }
 uint32_t NSMBW_EXPORT nsmbw_mem_read16(uint32_t address) { return read(address, 2); }
 uint32_t NSMBW_EXPORT nsmbw_mem_read32(uint32_t address) { return read(address, 4); }
