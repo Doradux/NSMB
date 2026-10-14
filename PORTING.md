@@ -46,3 +46,10 @@ No publicar la ISO, los binarios ni los recursos de Nintendo en GitHub.
 2. Generate C++ functions into **private/ignored output**, compare their memory semantics and reference paths to the existing runtime.
 3. Adapt the upstream checked `MemoryInline` path to WASM. Preserve MMIO/GX FIFO, executable-write detection and the Wii's sparse mappings.
 4. Bring up a scheduler backend for Emscripten and a WebGPU rendering path. Only then attempt boot and level loading.
+## Private translation experiment (2026-10-14)
+
+- A **non-production**, privately stored profile matching the extracted DOL hash allowed the compiled PowerPC translator to finish a recursive pass in **20.82 seconds**.
+- The translator emitted metadata for **39,779 functions**, a private C++ source bundle (~207 MB), and private metadata (~26 MB). Original assets and generated copyrighted code remain **outside Git**.
+- These outputs demonstrate only that translation executed; they do **not** prove that the pinned upstream DOL hooks, address map, ABI, scheduling, rendering or gameplay are valid.
+- Do not treat the experimental profile as a release configuration or upload the generated source. Compatibility verification and an authentic guest-function WebAssembly test are still outstanding.
+- Multiple contributors coordinate asynchronously in the owner's local C:\NSMBcowork workspace with isolated branches, atomic task claims and independent code reviews. Mario performs final integration.
