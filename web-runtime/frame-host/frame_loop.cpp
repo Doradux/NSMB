@@ -82,6 +82,15 @@ int EXPORT nsmbw_loop_reap(uint32_t id) {
   *t=Context{};
   return 1;
 }
+// Only quota error 3 is explicitly retryable after the host increases its
+// sparse-page budget. Unsupported MMIO/device faults must remain rejected.
+int EXPORT nsmbw_loop_retry_quota(uint32_t id) {
+  lastError=0;auto* t=find(id);
+  if(!t||t->state!=FAULT||t->error!=3u){lastError=3;return 0;}
+  t->state=READY;
+  t->error=0;
+  return 1;
+}
 // One unit of scheduled guest work calls W07 compiled C++ checked function.
 // Return ID dispatched, 0 exhausted, -1 all blocked, -2 invalid internal state.
 int EXPORT nsmbw_loop_tick() {

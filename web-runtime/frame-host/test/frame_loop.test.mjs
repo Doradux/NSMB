@@ -141,3 +141,46 @@ test('scheduler rejects runaway budgets, invalid transitions, missing IDs and st
   host.dispose();
   await assert.rejects(host.start(), /disposed/);
 });
+
+test('last guest operation MMIO failure never speculatively commits DONE or PC',async()=>{
+  const { module, call } = await fresh();
+  assert.equal(call('mem_write32',0x80000000,0x11),1);
+  assert.equal(call('loop_spawn',7,0x80000000,0xCC008000,1,1),1);
+  assert.equal(call('loop_spawn',8,0x80000000,0x80000004,2,1),1);
+  const host=createFrameHost(module,{ids:[7,8],budget:1});
+  assert.equal(host.frame().executed,1);
+  assert.equal(call('loop_state',7),GuestState.FAULT);
+  assert.equal(call('loop_pc',7),0,'denied FINAL instruction must not commit PC');
+  assert.equal(call('loop_done'),0,'denied FINAL instruction must not mark DONE');
+  assert.equal(call('loop_guest_error',7),4);
+  assert.equal(host.resume(7),0,'MMIO faults cannot be resumed as benign waits');
+  assert.equal(host.retryQuota(7),0,'MMIO faults cannot masquerade as quota retry');
+  assert.equal(host.frame().done,1);
+  assert.equal(call('loop_pc',8),1);
+  assert.equal(call('mem_read32',0x80000004),0x13);
+  assert.equal(call('mem_read32',0x80000000),0x11);
+  assert.equal(host.snapshot().faulted,1);
+  host.dispose();
+});
+
+test('host may explicitly retry page-quota fault after increasing sparse budget',async()=>{
+  const { module, call }=await fresh();
+  assert.equal(call('mem_set_page_budget',1),1);
+  assert.equal(call('mem_write32',0x80000000,4),1);
+  assert.equal(call('loop_spawn',5,0x80000000,0x80001000,6,1),1);
+  const host=createFrameHost(module,{ids:[5],budget:1});
+  assert.equal(host.frame().faulted,1);
+  assert.equal(call('loop_pc',5),0);
+  assert.equal(call('loop_done'),0);
+  assert.equal(host.resume(5),0,'fault must not be resumed like ordinary pause');
+  assert.equal(call('mem_set_page_budget',2),1,'explicit host quota change');
+  assert.equal(host.retryQuota(5),1);
+  const repaired=host.frame();
+  assert.equal(repaired.done,1);
+  assert.equal(repaired.contexts[0].pc,1);
+  assert.equal(repaired.contexts[0].regA,10);
+  assert.equal(call('mem_read32',0x80001000),10);
+  assert.equal(call('mem_pages'),2);
+  assert.equal(host.retryQuota(5),0,'DONE cannot be retried');
+  host.dispose();
+});

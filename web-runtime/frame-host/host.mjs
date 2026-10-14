@@ -108,6 +108,7 @@ export function createFrameHost(module, {
     suspend: id => invoke('suspend', id),
     resume: id => invoke('resume', id),
     cancel: id => invoke('cancel', id),
+    retryQuota: id => invoke('retry_quota', id),
     get running() { return running; }
   };
 }

@@ -34,8 +34,8 @@ The new `frame_loop.cpp` links **the unchanged public sources** `src/guest_memor
 
 - `nsmbw_loop_spawn(id,src,dst,addend,limit)`: IDs 1..65535 (trace ABI), 1..32 operations; up to eight simultaneous slots.
 - Context state: READY=1, PAUSED=2, DONE=3, FAULT=4, CANCELLED=5; exported `state,pc,reg_a,guest_error,yields`.
-- `nsmbw_loop_tick()` executes **at most one** W07 operation; `nsmbw_loop_frame(budget)` executes at most 1..64 ticks; `suspend/resume/cancel/reap` manage lifecycle.
-- A guest fault records the W07 error and marks **only that context** FAULT. Its PC/guest accumulator do not advance. Other contexts continue round-robin. Two-page destination writes retain W04 atomic guarantees. A fault attempt is logged with trace bit 15 set.
+- `nsmbw_loop_tick()` executes **at most one** W07 operation; `nsmbw_loop_frame(budget)` executes at most 1..64 ticks; `suspend/resume/cancel/reap/retry_quota` manage lifecycle. `retry_quota(id)` only accepts a FAULT context with W07 error 3, after an explicit host allocation-policy decision. MMIO/device errors 4/5/6 cannot be resumed or quota-retried.
+- A guest fault records the W07 error and marks **only that context** FAULT. W07 executes **before** the PC/register/DONE commit, including on the final instruction; denied MMIO and allocation failures never advance PC, so no speculative DONE state exists. Its PC/guest accumulator do not advance. Other contexts continue round-robin. Two-page destination writes retain W04 atomic guarantees. A fault attempt is logged with trace bit 15 set.
 - `host.mjs` owns `requestAnimationFrame` scheduling, per-frame instruction cap, max frame count, host stop/restart, cancellation and JS error propagation. It rejects manual or nested dispatch while already running. It stops when all contexts are DONE/CANCELLED or blocked (PAUSED/FAULT); host code must explicitly resume paused contexts.
 - `diagnostic.html` creates three actual Wasm contexts, suspends/resumes one between real Chrome animation frames, faults another via MMIO and verifies two healthy contexts finish. It checks the real wasm trace/order, memory values and bounded work.
 
@@ -54,9 +54,9 @@ node --test web-runtime/frame-host/test/*.test.mjs
 
 Independently run on `marcos` on 2026-10-14:
 - Both Emscripten compilations **PASS** and emit real `.wasm` and browser ESM assets.
-- **12/12 PASS** (11 Node regressions + 1 actual Chrome headless test using a localhost-only allowlist HTTP server and Chrome DevTools Protocol).
+- **14/14 PASS** (13 Node regressions + 1 actual Chrome headless test using a localhost-only allowlist HTTP server and Chrome DevTools Protocol). New regressions explicitly cover Toad's original W03 last-instruction MMIO commit bug and a deliberate host quota increase followed by a safe fault retry.
 - Browser test checks three independent guest functions interleaved across **4 actual animation frames**, budget ≤2 per frame, deterministic trace `[1,2,3,1,2,1,2]`, MMIO error 4, two completed threads and successful checked RAM results 13 and 26.
-- Regression checks cover sparse quota failure isolation, cancellation, explicit host pause/restart, invalid transitions, safe context recycling, ring buffer, Asyncify non-reentrancy, reentrant frame denial, and 16-bit trace IDs.
+- Regression checks cover sparse quota failure isolation, cancellation, explicit host pause/restart, invalid transitions, safe context recycling, ring buffer, Asyncify non-reentrancy, reentrant frame denial, and 16-bit trace IDs. The older W03 baseline remains unmodified and is not approved for fault-atomic W07 integration.
 
 Browser test uses unique ephemeral loopback port and private temporary browser profile, requires actual Chrome/Brave, and verifies no uncaught browser runtime exception. Do not count a skipped browser test as hardware/browser success on another machine.
 
