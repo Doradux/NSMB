@@ -21,6 +21,10 @@ void nsmbw_mem_reset(void);
 
 namespace {
 uint32_t interopStatus = 0;
+// Set whenever a trusted policy callback was ENTERED in the current access.
+// This is conservative for read-clear registers and rejected device writes:
+// unknown external effects make automatic retries unsafe.
+uint32_t interopDeviceInvoked = 0;
 // Preserve legacy W07 status ABI: 0 OK, 1 unmapped, 2 wrap,
 // 3 page quota/OOM, 4 unavailable MMIO/GX. New: 5 handler rejected,
 // 6 malformed handler response/invalid scalar width.
@@ -49,7 +53,9 @@ uint32_t readChecked(uint32_t address, uint32_t width) {
     if (interopStatus != 0) return 0;
     if (overlapsDevice(address, width)) {
         uint32_t output = 0;
-        interopStatus = NSMBDevice::access(NSMBDevice::Operation::Read, address, width, 0, output);
+        bool invoked = false;
+        interopStatus = NSMBDevice::access(NSMBDevice::Operation::Read, address, width, 0, output, &invoked);
+        if (invoked) interopDeviceInvoked = 1;
         return interopStatus == 0 ? output : 0;
     }
     uint32_t data = 0;
@@ -64,8 +70,10 @@ uint32_t writeChecked(uint32_t address, uint32_t width, uint32_t value) {
     if (interopStatus != 0) return 0;
     if (overlapsDevice(address, width)) {
         uint32_t ignored = 0;
+        bool invoked = false;
         interopStatus = NSMBDevice::access(NSMBDevice::Operation::Write,
-                                           address, width, value, ignored);
+                                           address, width, value, ignored, &invoked);
+        if (invoked) interopDeviceInvoked = 1;
         return interopStatus == 0 ? 1u : 0u;
     }
     int ok = 0;
@@ -79,17 +87,21 @@ uint32_t writeChecked(uint32_t address, uint32_t width, uint32_t value) {
 } // namespace
 
 extern "C" {
-uint32_t W07_EXPORT nsmbw_interop_read8(uint32_t a) { return readChecked(a, 1); }
-uint32_t W07_EXPORT nsmbw_interop_read16(uint32_t a) { return readChecked(a, 2); }
-uint32_t W07_EXPORT nsmbw_interop_read32(uint32_t a) { return readChecked(a, 4); }
-uint32_t W07_EXPORT nsmbw_interop_write8(uint32_t a, uint32_t v) { return writeChecked(a, 1, v); }
-uint32_t W07_EXPORT nsmbw_interop_write16(uint32_t a, uint32_t v) { return writeChecked(a, 2, v); }
-uint32_t W07_EXPORT nsmbw_interop_write32(uint32_t a, uint32_t v) { return writeChecked(a, 4, v); }
+uint32_t W07_EXPORT nsmbw_interop_read8(uint32_t a) { interopDeviceInvoked = 0; return readChecked(a, 1); }
+uint32_t W07_EXPORT nsmbw_interop_read16(uint32_t a) { interopDeviceInvoked = 0; return readChecked(a, 2); }
+uint32_t W07_EXPORT nsmbw_interop_read32(uint32_t a) { interopDeviceInvoked = 0; return readChecked(a, 4); }
+uint32_t W07_EXPORT nsmbw_interop_write8(uint32_t a, uint32_t v) { interopDeviceInvoked = 0; return writeChecked(a, 1, v); }
+uint32_t W07_EXPORT nsmbw_interop_write16(uint32_t a, uint32_t v) { interopDeviceInvoked = 0; return writeChecked(a, 2, v); }
+uint32_t W07_EXPORT nsmbw_interop_write32(uint32_t a, uint32_t v) { interopDeviceInvoked = 0; return writeChecked(a, 4, v); }
+// Read immediately after the relevant operation, before another context runs.
+uint32_t W07_EXPORT nsmbw_interop_device_invoked() { return interopDeviceInvoked; }
+uint32_t W07_EXPORT nsmbw_interop_retry_safe() { return interopDeviceInvoked == 0 ? 1u : 0u; }
 uint32_t W07_EXPORT nsmbw_interop_step(uint32_t sourceGuest,
                                         uint32_t destinationGuest,
                                         uint32_t addend) {
     // Preserve W07 scheduler ABI and status codes, but route device addresses
     // through a typed callback, never into ordinary W04 RAM.
+    interopDeviceInvoked = 0;
     interopStatus = precheck(sourceGuest, 4);
     if (interopStatus != 0) return 0;
     interopStatus = precheck(destinationGuest, 4);
@@ -104,5 +116,6 @@ void W07_EXPORT nsmbw_interop_reset(void) {
     nsmbw_mem_reset();
     NSMBDevice::clear(); // bound callbacks never outlive reset
     interopStatus = 0;
+    interopDeviceInvoked = 0;
 }
 }
