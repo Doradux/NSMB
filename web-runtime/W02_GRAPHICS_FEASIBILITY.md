@@ -21,7 +21,7 @@ Porting the complete GX/EFB pipeline, shader translation, textures and command s
 - `web-runtime/gpu-lab.mjs`: tries native **browser WebGPU** initialization; creates a synthetic WGSL vertex/fragment shader and draws a fullscreen triangle into a 1x1 offscreen `rgba8unorm` texture; copies it to a MAP_READ buffer to check RGBA values. It then paints the canvas surface and awaits submission.
 - When WebGPU is absent, blocked or no adapter exists, it instead draws an independently testable Canvas 2D image and checks its corner pixel. This **fallback is not equivalent to GPU support or native GX**, and UI identifies the actual active mode.
 - Handles resize, high-DPI up to 2x, GPU device loss, repeat-check button, overlapping async reruns, bounded requests, stale callbacks and cleanup. Canvas PASS does not imply WebGPU PASS.
-- `server.js`: exact allowlist extended for these two new static files, without exposing private directories.
+- `server.js`: exact allowlist extended for these two new static files, without exposing private directories. Peer-review fix: malformed percent-encoded URL paths now return HTTP 400 instead of crashing the Node HTTP process; tests verify the server remains alive.
 - `web-runtime/test/gpu_lab.test.mjs`: dependency-free Node HTTP/MIME/path-denial tests, real headless Chrome/Brave Canvas fallback and 9 imported GPU-mock tests from `gpu_controller.test.mjs`.
 
 ## How to run

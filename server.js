@@ -17,7 +17,13 @@ const mime = {
 };
 const allowed = new Set(['index.html', 'styles.css', 'app.js', 'assets/world-1-1.webp', 'assets/world-1-1.png', 'assets/favicon.svg', 'web-runtime/lab.html', 'web-runtime/gpu-lab.html', 'web-runtime/gpu-lab.mjs', 'web-runtime/dist/guest_memory.mjs', 'web-runtime/dist/guest_memory.wasm']);
 http.createServer((req,res) => {
-  const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch {
+    res.writeHead(400, {'content-type':'text/plain; charset=utf-8'});
+    return res.end('Bad request');
+  }
   const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
   if (!allowed.has(requested)) {
     res.writeHead(404, {'content-type':'text/plain; charset=utf-8'}); return res.end('Not found');

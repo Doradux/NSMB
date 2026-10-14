@@ -43,6 +43,13 @@ test('the lab serves only allowlisted HTML and ESM with valid MIME types', async
   assert.match(script.headers.get('content-type'), /application\/javascript/);
   assert.match(await script.text(), /gpuReadback/);
   assert.equal(forbidden.status, 404);
+  for (const invalid of ['/%', '/%FF']) {
+    const rejected = await fetch(`http://127.0.0.1:${port}${invalid}`);
+    assert.equal(rejected.status, 400, `malformed URL ${invalid} must not crash server`);
+    assert.match(await rejected.text(), /Bad request/);
+  }
+  const afterMalformed = await fetch(`http://127.0.0.1:${port}/web-runtime/gpu-lab.html`);
+  assert.equal(afterMalformed.status, 200, 'server must survive invalid encoding');
 });
 
 const candidates = [
