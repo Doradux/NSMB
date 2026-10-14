@@ -16,5 +16,8 @@ using Callback = Reply (*)(Region, Operation, uint32_t guestAddress,
 void install(Region region, Callback callback) noexcept;
 void clear() noexcept;
 uint32_t access(Operation operation, uint32_t address, uint32_t width,
-                uint32_t input, uint32_t& output) noexcept;
+                uint32_t input, uint32_t& output, bool* callbackInvoked = nullptr) noexcept;
+// Single-thread callback policy: no recursive dispatch or handler mutation.
+// callbackInvoked remains true even for rejected/invalid replies because
+// irreversible external side effects may have already occurred.
 } // namespace NSMBDevice

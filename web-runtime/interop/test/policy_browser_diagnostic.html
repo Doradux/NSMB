@@ -24,6 +24,17 @@ try{
   c('interop_reset');
   if(c('interop_write8',0xCC008000,1)!==0||c('interop_status')!==4)
     throw Error('RESET_HANDLER_NOT_CLEARED');
+  // Browser-local real Wasm fault injection: MMIO read can have side effects
+  // BEFORE later RAM quota failure. Host must not retry the same operation.
+  c('test_policy_install',1);
+  if(c('mem_set_page_budget',0)!==1)throw Error('QUOTA_SETUP_FAILED');
+  if(c('interop_step',0xCC000000,0x80001000,9)!==0||
+     c('interop_status')!==3||c('interop_device_invoked')!==1||
+     c('interop_retry_safe')!==0||c('test_policy_calls')!==1)
+    throw Error('NONRETRYABLE_MMIO_FAULT_NOT_REPORTED');
+  c('interop_reset');
+  if(c('interop_device_invoked')!==0||c('mem_set_page_budget',1)!==1)
+    throw Error('RESET_EFFECT_LIFECYCLE_FAILED');
   let sum=0;
   const began=performance.now();
   for(let i=0;i<10000;i++){
