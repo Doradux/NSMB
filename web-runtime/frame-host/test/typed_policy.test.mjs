@@ -88,3 +88,24 @@ test('typed callbacks never promote a straddling device access into RAM',async()
   assert.equal(c('test_policy_calls'),0,'precheck denies straddle BEFORE callback');
   assert.equal(c('mem_pages'),0);
 });
+
+test('a guest quota failure AFTER a device read must not replay the MMIO callback',async()=>{
+  const {call:c}=await fresh(createFixture,'frame_loop_fixture');
+  assert.equal(c('mem_set_page_budget',0),1);
+  c('test_policy_install',1); // synthetic MMIO READ has an observable invocation
+  spawn(c,31,0xCC000000,0x80001000,1,1);
+  assert.equal(c('loop_frame',1),1);
+  assert.equal(c('loop_guest_error',31),3,'later RAM allocation failed');
+  assert.equal(c('loop_state',31),4);
+  assert.equal(c('loop_pc',31),0);
+  assert.equal(c('loop_retry_safe',31),0,'guest remembers nonretryable device fault');
+  assert.equal(c('test_policy_calls'),1,'first MMIO callback already entered');
+  assert.equal(c('mem_pages'),0);
+  assert.equal(c('mem_set_page_budget',1),1,'host intentionally raises page quota');
+  assert.equal(c('loop_retry_quota',31),0,
+    'status3 after side-effectful MMIO cannot be replayed merely by raising the quota');
+  assert.equal(c('loop_frame',1),0,'faulted task stays blocked');
+  assert.equal(c('test_policy_calls'),1,'MMIO handler must not be entered twice');
+  assert.equal(c('mem_pages'),0);
+  assert.equal(c('loop_pc',31),0);
+});

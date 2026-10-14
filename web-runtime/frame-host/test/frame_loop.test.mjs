@@ -171,6 +171,7 @@ test('host may explicitly retry page-quota fault after increasing sparse budget'
   const host=createFrameHost(module,{ids:[5],budget:1});
   assert.equal(host.frame().faulted,1);
   assert.equal(call('loop_pc',5),0);
+  assert.equal(call('loop_retry_safe',5),1,'pure RAM quota failure remains retryable');
   assert.equal(call('loop_done'),0);
   assert.equal(host.resume(5),0,'fault must not be resumed like ordinary pause');
   assert.equal(call('mem_set_page_budget',2),1,'explicit host quota change');
