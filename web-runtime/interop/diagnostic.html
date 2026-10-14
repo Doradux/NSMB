@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>W07 checked guest interop — synthetic</title></head>
+<body><h1>W07 synthetic PowerPC-style guest-function test</h1>
+<p>No commercial game code, no Wii emulation, no gameplay.</p>
+<pre id="status" data-state="pending">Loading WebAssembly and checked memory</pre>
+<script type="module">
+import createModule from './dist/checked_interop.mjs';
+const status = document.getElementById('status');
+try {
+  const mod = await createModule({ locateFile: () => './dist/checked_interop.wasm' });
+  const call = (name,...args) => mod['_nsmbw_'+name](...args);
+  call('interop_reset');
+  if(call('mem_set_page_budget',3)!==1) throw Error('BUDGET_SETUP_FAILED');
+  if(call('mem_write32',0x80001000,0x01020304)!==1) throw Error('INPUT_SETUP_FAILED');
+  if(call('interop_step',0xC0001000,0x90001000,0x100)!==1 || call('interop_status')!==0)
+    throw Error('SYNTHETIC_GUEST_CALL_FAILED');
+  const result = call('mem_read32',0xD0001000)>>>0;
+  if(result!==0x01020404) throw Error('MEM2_WRONG_OUTPUT_'+result.toString(16));
+  if(call('interop_step',0xCC008000,0x90001004,7)!==0 || call('interop_status')!==4)
+    throw Error('GX_MMIO_NOT_REJECTED');
+  status.dataset.state='pass';
+  status.textContent='PASS: actual WASM synthetic guest step reads MEM1 and writes MEM2; GX MMIO denied';
+} catch(error) {
+  status.dataset.state='fail';
+  status.textContent='FAIL: '+(error?.message||String(error));
+  console.error('W07 synthetic interop failed',error);
+}
+</script></body></html>
