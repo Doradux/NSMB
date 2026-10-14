@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>W03 + W07 synthetic integration acceptance</title><link rel="icon" href="data:,"></head>
+<body><main><h1>W03 + W07 synthetic Wasm integration</h1>
+<p>No Nintendo assets, translated game functions, game audio, game boot or native Wii threads.</p>
+<div id="result" role="status" data-state="pending">Loading two independent WebAssembly modules</div>
+<pre id="details"></pre></main>
+<script type="module">
+import createScheduler from '/scheduler.mjs';
+import createInterop from '/checked_interop.mjs';
+const result=document.getElementById('result'),details=document.getElementById('details');
+try {
+ const sched=await createScheduler({locateFile:()=>'/scheduler.wasm'});
+ const guest=await createInterop({locateFile:()=>'/checked_interop.wasm'});
+ const s=(name,...args)=>sched['_nsmbw_sched_'+name](...args);
+ const m=(name,...args)=>guest['_nsmbw_'+name](...args);
+ const insist=(condition,msg)=>{if(!condition)throw Error(msg);};
+ s('reset');m('interop_reset');
+ insist(m('mem_set_page_budget',1)===1,'set sparse page quota');
+ [1,2,3].forEach(id=>insist(s('spawn',id,3)===1,'spawn '+id));
+ const dispatched=[],expected=[1,2,3,1,3,1,3,2,2];
+ const turn=async()=>{
+  const id=s('step');
+  insist(id>0,'expected runnable context, got '+id);
+  const src=0x80001000+id*8,dst=0x90001000+id*8;
+  // Fresh MEM1 source reads zero; zero is data, not a failed read.
+  insist(m('interop_step',src,dst,id)===1,'valid zero read and write id='+id+' status='+m('interop_status'));
+  insist(m('interop_status')===0,'interop success status');
+  insist((m('mem_read32',dst)>>>0)===id,'MEM2 result for id='+id);
+  dispatched.push(id);
+  await new Promise(resolve=>requestAnimationFrame(resolve)); // bounded host-controlled dispatch
+ };
+ for(let i=0;i<3;i++)await turn();
+ insist(s('suspend',2)===1 && s('state',2)===2,'pause context 2');
+ for(let i=0;i<4;i++)await turn();
+ insist(s('step')===-1 && s('paused')===1 && s('ready')===0,'all-running-work blocked');
+ insist(s('resume',2)===1,'resume context 2');
+ for(let i=0;i<2;i++)await turn();
+ insist(s('done')===3 && s('step')===0,'complete exactly once');
+ insist(JSON.stringify(dispatched)===JSON.stringify(expected),'fair host turn order');
+ insist(s('trace_length')===9 && s('trace_at',8)===(2*256+3),'bounded trace');
+ const failures=[];
+ const reject=(label,source,dest,status)=>{
+  insist(m('interop_step',source,dest,7)===0,label+' should reject');
+  const actual=m('interop_status');
+  insist(actual===status,label+' expected '+status+' got '+actual);
+  failures.push({label,status:actual});
+ };
+ reject('GX_MMIO_DENIED',0xCC000000,0x90001020,4);
+ reject('UNMAPPED_RAM',0x40000000,0x90001020,1);
+ reject('ADDRESS_WRAP',0xFFFFFFFE,0x90001020,2);
+ const before=m('mem_pages');
+ reject('ATOMIC_QUOTA',0x80001000,0x90001FFF,3);
+ insist(before===1 && m('mem_pages')===1 && m('mem_read8',0x90001FFF)===0,'no partial cross-page write');
+ let canvasFallback='not-needed';
+ if(!navigator.gpu){
+  const canvas=document.createElement('canvas');canvas.width=1;canvas.height=1;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  insist(!!ctx,'canvas fallback absent');
+  ctx.fillStyle='#1c6da8';ctx.fillRect(0,0,1,1);
+  const pixel=[...ctx.getImageData(0,0,1,1).data];
+  // Display color conversion/rounding differs by 1 LSB across Chrome backends.
+  const expectedPixel=[28,109,168,255];
+  insist(pixel.every((value,i)=>Math.abs(value-expectedPixel[i])<=1),
+    'canvas fallback pixel '+JSON.stringify(pixel));
+  canvasFallback='passed';
+ }
+ const report={dispatches:dispatched,done:s('done'),paused:s('paused'),
+  validZeroRead:true,errors:failures,pageCount:m('mem_pages'),
+  canvasFallback,hostTurns:dispatched.length};
+ details.textContent=JSON.stringify(report,null,2);
+ result.dataset.state='pass';
+ result.textContent='PASS — two actual Wasm modules, guest errors, bounded yields and resume';
+}catch(error){
+ result.dataset.state='fail';result.textContent='FAIL — '+(error?.message||error);
+ details.textContent=String(error?.stack||error);
+ console.error('W03/W07 integration failure:',error);
+}
+</script></body></html>
