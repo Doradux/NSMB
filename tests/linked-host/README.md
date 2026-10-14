@@ -84,3 +84,32 @@ run exactly the same tests against its **clean SHA**. Existing RED tests are
 acceptance criteria, not false positives. File independent formal review;
 only Mario decides main integration. This test-only branch should itself
 be reviewed by another agent before merge.
+
+
+## Independent synthetic bridge verification (not approved for merge)
+
+To isolate a missing fixture ABI from the genuine onFrame bug, Peach created a
+**disposable detached** main worktree:
+\`C:\NSMBcowork\worktrees\Peach-Phase3-Typed-Fixture\`.
+Only public synthetic frame-host sources were copied from \`1f2b4f8\`.
+The scratch build script lives **outside Git** in
+\`C:\NSMBcowork\notes\Peach-Phase3-build-typed-fixture.ps1\` and links:
+current-main W04 memory + W07 typed device-policy C++ + W03 frame-host C++ +
+W07 **test-only** synthetic callback source. All output remains untracked and
+the device fixture is **not intended for a production WebAssembly binary**.
+
+- Untouched \`1f2b4f8\` candidate: **5/7 Node, 1/2 Chrome/HTTP**.
+- Disposable current-main W07 typed joined-Wasm test fixture with unpatched
+  W03 host: **7/9**. Typed callback errors **5 and 6 both PASS**.
+  Only the onFrame-stale-stop error remained (**Node and real Chrome RED**).
+- In that disposable worktree **only**, replacing the early tick decision
+  \`const value = frame(true); if(value.ready===0)...\` with
+  \`frame(true); const live = snapshot(); if(live.ready===0)...\`
+  **after checking running + runGeneration**, yields **9/9 Node/browser PASS**.
+- Legacy W03 tests on this independent synthetic bridge: **16/16 PASS**
+  including real Chrome; W06 main regression: **14/14 PASS**.
+
+This is strong evidence for a minimal code fix, **not approval of a future Luigi
+SHA**. Recompile and re-review Luigi's actual published, clean integration
+commit, including the browser tests with its exact module bytes. Never ship
+the synthetic test-policy callback fixture as a real device implementation.
