@@ -41,7 +41,7 @@ test('the lab serves only allowlisted HTML and ESM with valid MIME types', async
   assert.match(await html.text(), /Browser GPU feasibility lab/);
   assert.equal(script.status, 200);
   assert.match(script.headers.get('content-type'), /application\/javascript/);
-  assert.match(await script.text(), /readBackWebGpu/);
+  assert.match(await script.text(), /gpuReadback/);
   assert.equal(forbidden.status, 404);
 });
 
@@ -65,8 +65,12 @@ test('headless browser verifies the Canvas 2D fallback pixel readback', { skip: 
     assert.equal(result.error, undefined, result.error?.message);
     assert.equal(result.status, 0, result.stderr?.slice(-500));
     assert.match(result.stdout, /id="result"[^>]+data-result="passed"[^>]+data-mode="canvas2d"/);
-    assert.match(result.stdout, /2D draw and pixel readback verified/);
+    assert.match(result.stdout, /Canvas 2D only; WebGPU unavailable/);
+    assert.match(result.stdout, /data-gpu-status="unavailable"/);
   } finally {
     try { rmSync(profile, { recursive: true, force: true }); } catch {}
   }
 });
+
+// Run mock GPU lifecycle/overlap/device-loss coverage with the original W02 command.
+import './gpu_controller.test.mjs';
