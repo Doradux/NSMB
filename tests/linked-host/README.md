@@ -1,0 +1,86 @@
+# Peach phase 3 — red-first single-linked-Wasm acceptance
+
+**Status:** QA branch contains intentionally failing RED tests against legacy W03
+candidate \`1f2b4f8\`. This is the correct gate until an independently reviewed,
+updated single-Wasm host and typed W07 fixture exist. **Do not mark the
+integration green by skipping or weakening these tests.**
+
+- Base: public main \`da10f58\`.
+- Code under test is **externally supplied** from a clean isolated worktree; this
+  branch adds only tests, a synthetic HTML diagnostic and documentation.
+- Original game files, translation outputs, runtime credentials and private
+  asset manifests must not be copied into this repo or served by the test server.
+- There is **no game boot or playable Wii engine**. The guest code is synthetic.
+
+## Run from the QA branch (PowerShell, Windows)
+
+```powershell
+$env:NSMB_LINKED_ROOT = 'C:\NSMBcowork\worktrees\Peach-W03-Phase3-Audit'
+node --test tests/linked-host/contract.test.mjs tests/linked-host/browser.test.mjs
+```
+
+Requires Node 24+, Chrome or Brave installed for actual browser test. Use
+\`NSMB_BROWSER\` to point to browser binary when it is not auto-discovered.
+Target root must contain \`web-runtime/frame-host\` compiled from C++ using
+Emscripten. Tests start an ephemeral loopback port and isolated Chrome profile.
+They use reviewed W06 DevTools harness with loader tracking and awaited cleanup.
+
+## Independent RED-first baseline: W03 1f2b4f8
+
+- Rebuilt from source in clean detached \`Peach-W03-Phase3-Audit\` with
+  \`frame-host/build.ps1\` and \`build_asyncify.ps1\` (both PASS).
+- W03 original source tests: **16/16 PASS** including headless Chrome.
+- Independent old-bug reversal probes:
+  \`node C:\NSMBcowork\notes\Peach-W03-Phase3-adversarial.mjs\`
+  **5/5 PASS**: last-operation MMIO fault preserves PC, synchronous first RAF
+  exception cleans running state, stale callbacks blocked after restart,
+  16 contexts recycled across 8 slots, one-instance Asyncify overlap rejected,
+  and 128 quota-retry/reset/reap cycles.
+- New linked suite \`contract.test.mjs\`: **5/7 PASS, 2 RED**.
+- New real Chrome \`browser.test.mjs\`: **1/2 PASS, 1 RED**.
+
+### Blocker W03-P3-01 — stale pre-onFrame stop decision
+
+With **one real linked W03+W07 C++ Wasm instance**, spawn three contexts.
+On frame 1 pause context 2, frame 2 fault context 3 on MMIO, frame 3
+finish context 1; **in onFrame(frame 3) resume context 2 and cancel 3**.
+The host resolves \`{reason:"blocked", ready:1}\` and stops because
+\`host.mjs\` checks the pre-\`onFrame\` \`value.ready === 0\`, not the fresh
+ready set. A real Chrome test on \`diagnostic.html\` fails
+\`expected completed: blocked\`; deterministic Node counterpart fails too.
+This prevents frame-driven events/wakeups from making progress. Fix in the
+**owner's branch**: compute a post-callback snapshot (guarded by run generation)
+before terminal state decisions, cover Node + REAL browser, preserve strict
+frame budget and cancellation.
+
+### Gate W03-P3-02 — typed W07 MMIO errors 5/6 missing
+
+Current \`1f2b4f8\` linked module predates current-main typed W07 policy and
+does not export a synthetic \`_nsmbw_test_policy_install\` /
+\`_nsmbw_test_policy_rejection\` fixture. The red contract requires faults
+for handler rejection (5) and malformed handler response (6) without
+advancing PC or permitting quota retry. The two hook names mirror W07's
+existing *separate test fixture* on main; if the integrated fixture ABI
+differs, agree an equivalent **test-only** mapping with Toad before adapting
+the test. Never allow public game assets or real device callbacks.
+
+## Positive coverage already green
+
+- Actual Wasm 3-context execution, independent guest PC/registers and valid zero
+  source, W07 checked memory, MMIO denial (4), quota recovery (3).
+- 128 reset/resume/cancel/reap cycles with bounded state and no hang.
+- Guard against Asyncify simultaneous calls on one module.
+- Early requestAnimationFrame throw and stale callback after cancelled handle.
+- Actual Chrome page loads only five allowlisted synthetic HTTP resources;
+  private/game/code routes return 404.
+- W08 absent/denied Gamepad, OfflineAudioContext synthetic buffer and forced
+  Canvas fallback are checked by the same browser page **after** the W03
+  stop-decision problem is resolved.
+
+## Review and merge policy
+
+After Luigi publishes a new commit with host fix and typed W07 fixture,
+run exactly the same tests against its **clean SHA**. Existing RED tests are
+acceptance criteria, not false positives. File independent formal review;
+only Mario decides main integration. This test-only branch should itself
+be reviewed by another agent before merge.

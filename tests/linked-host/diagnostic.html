@@ -1,0 +1,75 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>Single linked W03 + typed W07 synthetic acceptance</title></head>
+<body><main><h1>Real single-Wasm frame host test</h1>
+<p>Only synthetic C++ guest instructions. No original Nintendo code, Wii OS, game content or playable build.</p>
+<div id="result" role="status" data-state="pending">Loading actual Emscripten Wasm</div><pre id="details"></pre></main>
+<script type="module">
+import createModule from '/frame_loop.mjs';
+import {createFrameHost} from '/host.mjs';
+import {pollGamepads, renderSyntheticTone} from '/io/adapters.mjs';
+const status=document.getElementById('result'), details=document.getElementById('details');
+try {
+ const wasm=await createModule({locateFile:()=>'/frame_loop.wasm'});
+ const c=(name,...args)=>{
+   const fn=wasm['_nsmbw_'+name];if(typeof fn!=='function')throw Error('Missing linked export '+name);
+   return fn(...args);
+ };
+ const check=(ok,message)=>{if(!ok)throw Error(message)};
+ c('loop_reset');check(c('mem_set_page_budget',4)===1,'quota setup');
+ // Two normal contexts and one final-op MMIO fault must share the SAME Wasm memory.
+ check(c('mem_write32',0x80000000,0)===1,'legal zero data source');
+ check(c('mem_write32',0x80001000,3)===1,'second source');
+ check(c('loop_spawn',1,0x80000000,0x80000010,1,2)===1,'spawn 1');
+ check(c('loop_spawn',2,0x80001000,0x80001010,2,2)===1,'spawn 2');
+ check(c('loop_spawn',3,0x80000000,0xCC008000,3,1)===1,'spawn MMIO 3');
+ const events=[];let host;
+ host=createFrameHost(wasm,{ids:[1,2,3],budget:1,maxFrames:16,
+  requestFrame:cb=>requestAnimationFrame(cb),cancelFrame:id=>cancelAnimationFrame(id),
+  onFrame:f=>{
+   events.push({frame:f.frames,executed:f.executed,ready:f.ready,
+     contexts:f.contexts.map(x=>({id:x.id,pc:x.pc,state:x.state,err:x.guestError}))});
+   if(f.frames===1)check(host.suspend(2)===1,'suspend context 2');
+   if(f.frames===3){
+    check(host.resume(2)===1,'resume context 2');
+    check(host.cancel(3)===1,'explicitly cancel faulted context 3');
+   }
+  }
+ });
+ const result=await host.start();
+ check(result.reason==='completed','expected completed: '+result.reason);
+ check(result.frames===5 && events.length===5,'must use five distinct browser frames');
+ check(result.done===2 && result.cancelled===1,'guest terminal counts');
+ check(events[1].contexts[2].pc===0 && events[1].contexts[2].err===4,
+   'final MMIO must fault before PC/DONE');
+ check(result.contexts[0].regA===2,'first context zero-read arithmetic');
+ check(result.contexts[1].regA===7,'second context local registers');
+ check(c('mem_read32',0x80000014)===2,'actual W07 source/destination chain id1');
+ check(c('mem_read32',0x80001014)===7,'actual W07 source/destination chain id2');
+ host.dispose();
+ const inputs=pollGamepads({getGamepads(){const error=Error('denied');error.name='SecurityError';throw error}});
+ check(inputs.connected===false,'denied Gamepad API should degrade to disconnected');
+ check(pollGamepads(undefined).connected===false,'absent Gamepad provider should be disconnected');
+ check(typeof OfflineAudioContext==='function','offline-only audio unavailable');
+ const audio=await renderSyntheticTone(OfflineAudioContext,{sampleRate:48000,duration:0.125,volume:0.15});
+ check(audio.frames===6000 && audio.peak>0.1,'synthetic offline PCM test');
+ let canvasFallback='not-needed';
+ if(!navigator.gpu) {
+  const ctx=document.createElement('canvas').getContext('2d',{willReadFrequently:true});
+  check(!!ctx,'no Canvas2D fallback');
+  ctx.fillStyle='#1c6da8';ctx.fillRect(0,0,1,1);
+  const pixel=[...ctx.getImageData(0,0,1,1).data];
+  check(pixel.every((v,i)=>Math.abs(v-[28,109,168,255][i])<=1),'Canvas pixel mismatch');
+  canvasFallback='passed';
+ }
+ const report={backend:'single actual C++ Emscripten Wasm',frames:events,final:result,
+  memory:{one:c('mem_read32',0x80000014),two:c('mem_read32',0x80001014)},
+  deniedGamepad:!inputs.connected,offlineAudioFrames:audio.frames,canvasFallback};
+ window.__peachLinkedReport=report;
+ details.textContent=JSON.stringify(report,null,2);
+ status.dataset.state='pass';status.textContent='PASS: linked Wasm frames, faults, browser IO fallback';
+}catch(error){
+ status.dataset.state='fail';status.textContent='FAIL: '+(error?.message||error);
+ details.textContent=String(error?.stack||error);console.error('Peach linked host diagnostic:',error);
+}
+</script></body></html>
