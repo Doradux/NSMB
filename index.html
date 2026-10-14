@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f8f1">
+  <meta name="description" content="An independent, experimental project to bring New Super Mario Bros. Wii to modern web browsers via native recompilation.">
+  <title>NSMB Wii — Browser Port Project</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="site-header" id="top">
+    <div class="shell nav-wrap">
+      <a class="logo" href="#top" aria-label="Back to top">
+        <span class="logo-symbol" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+        <span class="logo-name">NSMB<span class="logo-light">/WEB</span></span>
+      </a>
+      <nav class="desktop-nav" aria-label="Main navigation">
+        <a href="#preview">Preview</a>
+        <a href="#approach">How it works</a>
+        <a href="#progress">Progress</a>
+      </nav>
+      <a class="nav-github" href="https://github.com/WitherBlitz/NSMB-Wii-Multiplayer-Recompilation" target="_blank" rel="noopener noreferrer">
+        Source project <span aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero shell" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <div class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span> EXPERIMENTAL BROWSER PORT <span class="eyebrow-separator">/</span> WORK IN PROGRESS</div>
+        <h1 id="hero-title">A classic adventure.<br><em>A new place to play.</em></h1>
+        <p class="lead">An independent engineering project exploring how to bring <strong>New Super Mario Bros. Wii</strong> to a modern browser through native recompilation — not console emulation.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#preview">Explore the preview <span aria-hidden="true">↗</span></a>
+          <a class="button button-secondary" href="#approach">Learn about the port <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="hero-note"><span class="note-star" aria-hidden="true">✳</span> The browser version is under development. No playable build is available yet.</div>
+      </div>
+      <div class="hero-decor" aria-hidden="true"><span class="dec-circle one"></span><span class="dec-circle two"></span><span class="dec-circle three"></span></div>
+    </section>
+
+    <section class="preview-section" id="preview" aria-labelledby="preview-title">
+      <div class="shell">
+        <div class="section-topline"><span class="mini-index">01 / PREVIEW</span><span class="section-marker" aria-hidden="true">✳</span></div>
+        <div class="section-heading">
+          <div><p class="section-kicker">A glimpse of what we're working towards</p><h2 id="preview-title">The adventure, <span>in your browser.</span></h2></div>
+          <p>This is a visual reference for the intended experience — it is <strong>not</strong> gameplay from a functioning web port.</p>
+        </div>
+        <figure class="preview-frame">
+          <div class="preview-topbar">
+            <span class="preview-label"><span class="status-ring" aria-hidden="true"></span> / CONCEPTUAL VIEW — NOT THE GAME</span>
+            <span class="preview-badge">WORLD 1 · REFERENCE IMAGE</span>
+          </div>
+          <div class="preview-image-wrap">
+            <picture><source srcset="assets/world-1-1.png" type="image/png"><img src="assets/world-1-1.png" alt="New Super Mario Bros. Wii World 1 map with Mario, Peach's castle, and colorful mushroom houses. This is a conceptual reference screenshot, not running browser gameplay." width="1920" height="1080" loading="eager" decoding="async"></picture>
+          </div>
+          <figcaption><span>ORIGINAL GAME VISUAL REFERENCE</span><span class="caption-right">No emulator. No ISO loaded in the browser. <span class="caption-sparkle" aria-hidden="true">✳</span></span></figcaption>
+        </figure>
+        <div class="preview-footnote"><span class="information-symbol" aria-hidden="true">i</span> This image is for illustration only. No Nintendo game assets are included in this project's public source code.</div>
+      </div>
+    </section>
+
+    <section class="approach-section shell" id="approach" aria-labelledby="approach-title">
+      <div class="section-topline"><span class="mini-index">02 / THE APPROACH</span><span class="section-marker" aria-hidden="true">↗</span></div>
+      <div class="section-heading">
+        <div><p class="section-kicker">Built differently, from the inside out</p><h2 id="approach-title">Recompiled. <span>Not emulated.</span></h2></div>
+        <p>The aim is to translate the game's original PowerPC logic into code that can run directly inside WebAssembly, then bridge its systems to the browser.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature"><span class="feature-no">01 —</span><div class="feature-icon"><span aria-hidden="true">⌘</span></div><h3>Native game logic</h3><p>Build on existing static recompilation research instead of running a virtual Wii CPU in the browser.</p></article>
+        <article class="feature"><span class="feature-no">02 —</span><div class="feature-icon"><span aria-hidden="true">▣</span></div><h3>Modern web graphics</h3><p>Adapt rendering, input, audio and memory handling for browser APIs such as WebGPU and WebAssembly.</p></article>
+        <article class="feature"><span class="feature-no">03 —</span><div class="feature-icon"><span aria-hidden="true">◎</span></div><h3>Local-first experience</h3><p>Prepare assets privately from your own game copy, then launch the eventual port on localhost.</p></article>
+      </div>
+    </section>
+
+    <section class="progress-section" id="progress" aria-labelledby="progress-title">
+      <div class="shell progress-shell">
+        <div class="progress-intro"><span class="mini-index">03 / DEVELOPMENT STATUS</span><h2 id="progress-title">It's early days.<br><span>Here's what's real.</span></h2><p>A transparent look at progress. The goal is authentic browser gameplay, but substantial platform work remains.</p><a href="https://github.com/WitherBlitz/NSMB-Wii-Multiplayer-Recompilation" target="_blank" rel="noopener noreferrer" class="inline-link">Explore the original recompilation work <span aria-hidden="true">↗</span></a></div>
+        <div class="milestones">
+          <div class="milestone"><span class="milestone-index">01</span><div><strong>Recompilation base acquired</strong><small>The open-source project has been cloned locally for investigation.</small></div><span class="state state-complete">Done</span></div>
+          <div class="milestone"><span class="milestone-index">02</span><div><strong>Source validation tool prepared</strong><small>A local script can check the game region, revision and extracted files.</small></div><span class="state state-complete">Done</span></div>
+          <div class="milestone"><span class="milestone-index">03</span><div><strong>Browser runtime adaptation</strong><small>Memory, scheduling, graphics, audio and input still need substantial work.</small></div><span class="state state-pending">Planned</span></div>
+          <div class="milestone"><span class="milestone-index">04</span><div><strong>First playable browser build</strong><small>Not yet available. This page is a project preview, not the game.</small></div><span class="state state-pending">Not ready</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing shell">
+      <span class="closing-icon" aria-hidden="true">✳</span>
+      <p>Made for the joy of figuring out how things work.</p>
+      <a href="#top">Back to top ↑</a>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="shell footer-inner"><span>NSMB/WEB · EXPERIMENTAL COMMUNITY PROJECT</span><span>Not affiliated with, endorsed or sponsored by Nintendo.</span></div></footer>
+</body>
+</html>

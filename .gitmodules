@@ -1,0 +1,3 @@
+[submodule "upstream-nsmbw"]
+	path = upstream-nsmbw
+	url = https://github.com/WitherBlitz/NSMB-Wii-Multiplayer-Recompilation.git
