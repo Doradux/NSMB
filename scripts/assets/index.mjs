@@ -180,6 +180,10 @@ export async function writePrivateManifest({ manifest, output, privateRoot, sour
   await assertNoLinkedAncestors(parent);
   const canonicalParent = await fs.realpath(parent);
   requireCondition(inside(safeRoot, canonicalParent), 'OUTPUT_SYMLINK_ESCAPE');
+  // The private root may contain a nested Git repo or linked worktree. Checking
+  // only ancestors of the root is insufficient: prevent an accidental commit
+  // of a manifest in any nested checkout, even when its .git is a plain file.
+  requireCondition(!(await gitAncestor(canonicalParent)), 'PRIVATE_ROOT_INSIDE_GIT');
   const final = path.join(canonicalParent, path.basename(outputPath));
   requireCondition(!inside(sourceRoot, final), 'OUTPUT_INSIDE_SOURCE');
   const existing = await fs.lstat(final).catch(error => {
