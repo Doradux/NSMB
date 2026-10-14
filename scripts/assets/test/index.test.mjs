@@ -159,3 +159,36 @@ test('a linked ancestor of source or private destination is forbidden', async t 
     privateRoot: path.join(link, 'private'), sourceRoot: manifest.root
   }), expectCode('SYMLINK_NOT_ALLOWED'));
 });
+
+test('nested Git repository under private root is not an acceptable output destination', async t => {
+  const f = await setup(t);
+  const report = await buildManifest({ source: f.source });
+  const nested = path.join(f.privateRoot, 'subproject');
+  await mkdir(path.join(nested, '.git'), { recursive: true });
+  const destination = path.join(nested, 'secret-manifest.json');
+  await assert.rejects(writePrivateManifest({
+    manifest: report.json, output: destination,
+    privateRoot: f.privateRoot, sourceRoot: report.root
+  }), expectCode('PRIVATE_ROOT_INSIDE_GIT'));
+  await assert.rejects(readFile(destination), error => error.code === 'ENOENT');
+});
+
+test('nested Git worktree metadata file is rejected, while private sibling stays valid', async t => {
+  const f = await setup(t);
+  const report = await buildManifest({ source: f.source });
+  const nested = path.join(f.privateRoot, 'worktree');
+  await mkdir(nested);
+  await writeFile(path.join(nested, '.git'), 'gitdir: C:/fake/worktree\n');
+  const destination = path.join(nested, 'secret-manifest.json');
+  await assert.rejects(writePrivateManifest({
+    manifest: report.json, output: destination,
+    privateRoot: f.privateRoot, sourceRoot: report.root
+  }), expectCode('PRIVATE_ROOT_INSIDE_GIT'));
+  await assert.rejects(readFile(destination), error => error.code === 'ENOENT');
+  const allowed = path.join(f.privateRoot, 'untracked-private', 'manifest.json');
+  await writePrivateManifest({
+    manifest: report.json, output: allowed,
+    privateRoot: f.privateRoot, sourceRoot: report.root
+  });
+  assert.equal(await readFile(allowed, 'utf8'), report.json);
+});

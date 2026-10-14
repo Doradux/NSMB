@@ -22,6 +22,9 @@ never commit generated manifests or plans.
   and unrecognized files are excluded; --unknown reject instead fails.
 - Output and private root must be absolute, outside Git, inside the owner's
   private workspace; parent traversal and symlink escapes are rejected.
+  The final manifest directory is also checked for a nested Git checkout
+  (both standard .git directory and linked-worktree .git file), preventing
+  a private manifest from accidentally landing in a nested repository.
 - CLI prints aggregate counts, total size, a profile match and a metadata-only
   digest, not private source paths or original filenames.
 
