@@ -1,11 +1,12 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
+import { Cdp, waitUntil, stopChild, removeProfile } from './harness.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const candidates = [process.env.NSMB_BROWSER,
@@ -14,78 +15,16 @@ const candidates = [process.env.NSMB_BROWSER,
   '/usr/bin/chromium', '/usr/bin/google-chrome', '/usr/bin/chromium-browser'
 ].filter(Boolean);
 const browser = candidates.find(existsSync);
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const maxWait = async (predicate, label, ms = 12000) => {
-  const until = Date.now() + ms;
-  while (Date.now() < until) {
-    try { const value = await predicate(); if (value) return value; } catch {}
-    await sleep(100);
-  }
-  throw Error('Timed out: ' + label);
-};
 async function freePort() {
   const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once('error', reject); probe.listen(0, '127.0.0.1', resolve);
+  await new Promise((done, fail) => {
+    probe.once('error', fail);
+    probe.listen(0, '127.0.0.1', done);
   });
   const port = probe.address().port;
-  await new Promise(resolve => probe.close(resolve));
+  await new Promise(done => probe.close(done));
   return port;
 }
-class Cdp {
-  constructor(socket) {
-    this.socket = socket;
-    this.nextId = 0;
-    this.pending = new Map();
-    this.errors = [];
-    this.httpErrors = [];
-    socket.addEventListener('message', event => {
-      const message = JSON.parse(event.data);
-      if (message.id) {
-        const task = this.pending.get(message.id);
-        if (!task) return;
-        this.pending.delete(message.id);
-        clearTimeout(task.timeout);
-        message.error ? task.reject(Error(JSON.stringify(message.error))) : task.resolve(message.result);
-      }
-      if (message.method === 'Runtime.exceptionThrown') {
-        this.errors.push('Uncaught: ' + (message.params.exceptionDetails.text || 'exception'));
-      }
-      if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
-        this.errors.push('console.error: ' + message.params.args.map(a => a.value || a.description || '').join(' '));
-      }
-      if (message.method === 'Log.entryAdded' && message.params.entry.level === 'error') {
-        this.errors.push('Log: ' + message.params.entry.text + ' at ' + (message.params.entry.url || '(no url)'));
-      }
-      if (message.method === 'Network.responseReceived' && message.params.response.status >= 400) {
-        this.httpErrors.push(message.params.response.status + ' ' + message.params.response.url);
-      }
-    });
-  }
-  send(method, params = {}) {
-    const id = ++this.nextId;
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(id); reject(Error('CDP timed out: ' + method));
-      }, 10000);
-      this.pending.set(id, { resolve, reject, timeout });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  async evaluate(expression) {
-    const reply = await this.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-    if (reply.exceptionDetails) throw Error('Browser JS exception: ' + reply.exceptionDetails.text);
-    return reply.result.value;
-  }
-  async goto(url) {
-    this.errors.length = 0;
-    this.httpErrors.length = 0;
-    await this.send('Page.navigate', { url });
-    await maxWait(async () => (await this.evaluate('document.readyState')) === 'complete', 'page load');
-  }
-  close() { this.socket.close(); }
-}
-
 let server, chrome, session, port, profile;
 const base = () => 'http://127.0.0.1:' + port;
 before(async () => {
@@ -94,37 +33,45 @@ before(async () => {
   server = spawn(process.execPath, ['server.js'], {
     cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore'
   });
-  await maxWait(async () => (await fetch(base())).status === 200, 'HTTP server');
+  await waitUntil(async () => {
+    if (server.exitCode !== null) throw Error('Local server terminated with code ' + server.exitCode);
+    return (await fetch(base())).status === 200;
+  }, 'HTTP server');
   profile = mkdtempSync(join(tmpdir(), 'nsmb-peach-w06-'));
-  chrome = spawn(browser, [
-    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
-    '--disable-gpu', '--no-sandbox', '--remote-debugging-port=0',
-    '--user-data-dir=' + profile, 'about:blank'
-  ], { stdio: 'ignore' });
-  const debug = await maxWait(() => {
+  const flags = ['--headless=new', '--no-first-run', '--no-default-browser-check',
+    '--disable-extensions', '--disable-gpu', '--remote-debugging-port=0',
+    '--user-data-dir=' + profile, 'about:blank'];
+  // Explicit opt-in for the uncommon isolated CI container requiring this option.
+  if (process.env.NSMB_CI_NO_SANDBOX === '1') flags.unshift('--no-sandbox');
+  chrome = spawn(browser, flags, { stdio: 'ignore' });
+  const debug = await waitUntil(() => {
+    if (chrome.exitCode !== null) throw Error('Browser terminated: ' + chrome.exitCode);
     const file = join(profile, 'DevToolsActivePort');
     return existsSync(file) && readFileSync(file, 'utf8').split(/\r?\n/)[0];
   }, 'Chrome DevTools port');
-  const pages = await maxWait(async () => {
+  const pages = await waitUntil(async () => {
     const r = await fetch('http://127.0.0.1:' + debug + '/json');
-    return (await r.json()).filter(p => p.type === 'page');
+    const targets = await r.json();
+    return targets.filter(t => t.type === 'page');
   }, 'Chrome page target');
   const socket = new WebSocket(pages[0].webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', reject, { once: true });
+  await new Promise((ok, fail) => {
+    socket.addEventListener('open', ok, { once: true });
+    socket.addEventListener('error', fail, { once: true });
   });
   session = new Cdp(socket);
-  for (const domain of ['Page', 'Runtime', 'Network', 'Log']) await session.send(domain + '.enable');
+  for (const domain of ['Page', 'Runtime', 'Network', 'Log'])
+    await session.send(domain + '.enable');
+  await session.send('Page.setLifecycleEventsEnabled', { enabled: true });
 });
 after(async () => {
-  if (session) session.close();
-  if (chrome) chrome.kill();
-  if (server) server.kill();
-  if (profile) {
-    // Chromium may still be releasing files immediately after process termination on Windows.
-    try { rmSync(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 150 }); } catch {}
+  const failures = [];
+  try { session?.close(); } catch (e) { failures.push(e); }
+  for (const [child, name] of [[chrome, 'headless browser'], [server, 'HTTP server']]) {
+    try { await stopChild(child, name); } catch (e) { failures.push(e); }
   }
+  try { await removeProfile(profile); } catch (e) { failures.push(e); }
+  if (failures.length) throw new AggregateError(failures, 'Browser QA cleanup failed');
 });
 
 test('home and diagnostic are English pages with explicit non-gameplay status', async () => {
@@ -223,7 +170,7 @@ test('keyboard Tab focus reaches visible links in the homepage', async () => {
 
 test('real browser runs all 11 WebAssembly memory checks', async () => {
   await session.goto(base() + '/web-runtime/lab.html');
-  const info = await maxWait(async () => {
+  const info = await waitUntil(async () => {
     const value = await session.evaluate(String.raw`(() => ({ status: document.getElementById('result').textContent,
       lines: document.getElementById('log').textContent.split('\n') }))()`);
     return /^PASS|^FAIL/.test(value.status) ? value : null;
@@ -234,7 +181,12 @@ test('real browser runs all 11 WebAssembly memory checks', async () => {
 });
 
 test('browser loads diagnostic page without JS console errors', async () => {
-  assert.deepEqual(session.errors, [], session.errors.join('\n') + '\nRequests: ' + session.httpErrors.join(', '));
+  // Wait for late asset errors to land in this document, not another navigation.
+  const nav = session.current;
+  await waitUntil(() => Date.now() - nav.activity >= 350,
+    'diagnostic navigation quiet', 5000);
+  assert.deepEqual(nav.errors, [], nav.errors.join('\n') + '\nRequests: ' + nav.httpErrors.join(', '));
+  assert.deepEqual(nav.httpErrors, [], 'Unexpected HTTP errors: ' + nav.httpErrors.join(', '));
   assert.equal((await fetch(base() + '/web-runtime/lab.html')).status, 200);
 });
 

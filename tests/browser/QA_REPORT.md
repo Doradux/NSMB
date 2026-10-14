@@ -29,3 +29,13 @@
 ## Handling
 
 No changes were made to Mario's main checkout, Luigi's worktree, game image data or proprietary Wii originals. The W06 branch adds QA files only. Three red tests are intentionally retained as acceptance blockers pending product fixes.
+
+## W06 hardening update — 2026-10-14
+
+- Merged `origin/main` into Peach's dedicated feature branch to test real integrated fixes without editing Mario's checkout.
+- Functional baseline on current main `0d97ed2`: **9/9 PASS** (all original 9 assertions remain; exact command `node --test tests/browser/regression.test.mjs`). The original 320px, favicon and malformed-URL bugs are fixed upstream.
+- Harness-specific unit command `node --test tests/browser/harness.test.mjs`: **4/4 PASS**.
+- Navigation waits for matching `Page.navigate` loaderId/frameId, `Page.frameNavigated`, `Page.lifecycleEvent(load)`, `Page.getFrameTree`, matching `location.href` and `document.readyState`. Deterministic fake-CDP test delays the new frame while previous document is complete.
+- Runtime errors follow executionContextId; network response errors follow request loaderId, and late log events are attributed by corresponding request URL. A quiet event window follows navigation; Chromium speculative requests may lack terminal events, so pending-request-count-zero is not a hard gate. Unit test injects stale 404 and JS error from previous loader and confirms current navigation stays clean.
+- `stopChild` waits for process exit; Windows has a bounded taskkill fallback; profile removal is retried and surfaced as a cleanup error instead of being silently swallowed. Browser sandbox is only disabled on explicit CI opt-in. Timeout errors retain the last predicate error as `cause`.
+- No Nintendo private assets copied; no authentic game or WebGPU success claimed.
