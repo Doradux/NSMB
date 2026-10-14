@@ -10,18 +10,19 @@ export function writeSyntheticGamepadSnapshot(module, gamepads, guestAddress, se
     throw new RangeError('INVALID_SEQUENCE');
   }
   const snapshot = snapshotGamepad(gamepads, options);
-  if (!snapshot.connected) return Object.freeze({ written: false, disconnected: true, status: 0 });
-  const buttons = Number(snapshot.primary) | (Number(snapshot.secondary) << 1) |
-    (Number(snapshot.pause) << 2);
+  // Disconnected input must release the previously pressed guest buttons.
+  // Neutral writes remain quota-checked and report failure explicitly.
+  const buttons = snapshot.connected ? (Number(snapshot.primary) |
+    (Number(snapshot.secondary) << 1) | (Number(snapshot.pause) << 2)) : 0;
   // Quantize magnitude symmetrically so mirrored stick inputs map to +/-N.
   const clamp = n => Math.sign(n) * Math.round(Math.abs(Math.max(-1, Math.min(1, n))) * 127);
-  const axisX = clamp(snapshot.moveX);
-  const axisY = clamp(snapshot.moveY);
+  const axisX = snapshot.connected ? clamp(snapshot.moveX) : 0;
+  const axisY = snapshot.connected ? clamp(snapshot.moveY) : 0;
   const store = module?._nsmbw_services_input_store;
   const status = module?._nsmbw_services_input_status;
   if (typeof store !== 'function' || typeof status !== 'function') {
     throw new TypeError('MISSING_CHECKED_WASM_INPUT_SERVICE');
   }
   const written = store(guestAddress, buttons, axisX, axisY, sequence) === 1;
-  return Object.freeze({ written, disconnected: false, status: status() });
+  return Object.freeze({ written, disconnected: !snapshot.connected, status: status() });
 }
