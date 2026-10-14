@@ -1,0 +1,42 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>W07 synthetic device policy test only</title></head>
+<body><h1>Mock Wii MMIO/GX browser diagnostic — synthetic only</h1>
+<pre id="status" data-state="pending">Loading</pre>
+<script type="module">
+import create from '/dist/checked_interop_fixture.mjs';
+const out=document.getElementById('status');
+try{
+  const m=await create({locateFile:()=>'/dist/checked_interop_fixture.wasm'});
+  const c=(key,...args)=>m['_nsmbw_'+key](...args);
+  c('interop_reset');
+  if(c('interop_read32',0xCC000000)!==0||c('interop_status')!==4)
+    throw Error('UNHANDLED_DEVICE_NOT_DENIED');
+  c('test_policy_install',3);
+  if((c('interop_read32',0xCC000004)>>>0)!==0x12345678||c('interop_status')!==0)
+    throw Error('MMIO_READ_DISPATCH_FAILED');
+  if(c('interop_write32',0xCC008000,0x12345678)!==1||
+     c('test_policy_last_region')!==2||c('test_policy_last_width')!==4)
+    throw Error('GX_FIFO_DISPATCH_FAILED');
+  c('test_policy_rejection',1);
+  if(c('interop_write16',0xCC000006,77)!==0||c('interop_status')!==5)
+    throw Error('POLICY_REJECTION_NOT_PROPAGATED');
+  c('test_policy_rejection',0);
+  c('interop_reset');
+  if(c('interop_write8',0xCC008000,1)!==0||c('interop_status')!==4)
+    throw Error('RESET_HANDLER_NOT_CLEARED');
+  let sum=0;
+  const began=performance.now();
+  for(let i=0;i<10000;i++){
+    const a=0x80000000+((i%128)*4);
+    if(c('interop_write32',a,i)!==1)throw Error('WRITE_FAILED');
+    sum=(sum+c('interop_read32',a))>>>0;
+  }
+  const ms=performance.now()-began;
+  if(!Number.isFinite(ms)||ms<0||c('mem_pages')!==1||c('interop_status')!==0)
+    throw Error('BENCHMARK_INVALID');
+  out.dataset.state='pass';
+  out.textContent='PASS: real Wasm synthetic MMIO/GX callback, denied errors/reset, 10k RAM roundtrips, '+ms.toFixed(2)+' ms, checksum='+sum;
+}catch(e){
+  out.dataset.state='fail';out.textContent='FAIL: '+(e?.message||String(e));console.error(e);
+}
+</script></body></html>
