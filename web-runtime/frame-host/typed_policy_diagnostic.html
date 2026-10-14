@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,">
+<title>Joined W03 W07 typed device errors browser test</title></head>
+<body><h1>Compiled synthetic W03/W07 typed device errors</h1>
+<p>Test-only fixture is never linked into the normal Wasm module.</p>
+<div id="result" data-state="pending" role="status">Running checked WebAssembly…</div>
+<pre id="details"></pre>
+<script type="module">
+import normalFactory from './dist/frame_loop.mjs';
+import fixtureFactory from './dist/frame_loop_fixture.mjs';
+import {createFrameHost} from './host.mjs';
+const result=document.getElementById('result'), details=document.getElementById('details');
+const check=(ok,message)=>{if(!ok)throw Error(message);};
+const call=(m,name,...args)=>{
+ const fn=m['_nsmbw_'+name];if(typeof fn!=='function')throw Error('Missing actual Wasm C export: '+name);
+ return fn(...args);
+};
+async function run() {
+ const normal=await normalFactory({locateFile:()=>new URL('./dist/frame_loop.wasm',import.meta.url).href});
+ const mock=await fixtureFactory({locateFile:()=>new URL('./dist/frame_loop_fixture.wasm',import.meta.url).href});
+ const outcomes=[],frameCounts=[];
+ check(typeof normal._nsmbw_test_policy_install==='undefined','normal Wasm exposed test hooks');
+ call(normal,'loop_reset');
+ check(call(normal,'mem_write32',0x80000000,7)===1,'source memory');
+ check(call(normal,'loop_spawn',1,0x80000000,0xCC008000,1,1)===1,'normal guest spawn');
+ const normalHost=createFrameHost(normal,{ids:[1],budget:1,maxFrames:4});
+ const noHandler=await normalHost.start();
+ check(noHandler.reason==='blocked'&&noHandler.faulted===1,'no-handler fault isolated');
+ check(noHandler.contexts[0].pc===0&&noHandler.contexts[0].guestError===4,'default status 4');
+ outcomes.push(4);frameCounts.push(noHandler.frames);normalHost.dispose();
+ for(const [scenario,expected] of [[1,5],[2,6]]) {
+   call(mock,'loop_reset');
+   check(call(mock,'mem_write32',0x80000000,7)===1,'fixture source');
+   call(mock,'test_policy_install',3);
+   call(mock,'test_policy_rejection',scenario);
+   check(call(mock,'loop_spawn',1,0x80000000,0xCC008000,1,1)===1,'handler guest spawn');
+   check(call(mock,'loop_spawn',2,0x80000000,0x80000004,3,1)===1,'healthy guest spawn');
+   const host=createFrameHost(mock,{ids:[1,2],budget:1,maxFrames:5});
+   const end=await host.start();
+   check(end.reason==='blocked'&&end.done===1&&end.faulted===1,'typed handler fault isolated');
+   check(end.contexts[0].pc===0&&end.contexts[0].guestError===expected,'typed status '+expected);
+   check(end.contexts[1].pc===1&&end.contexts[1].regA===10,'healthy guest unaffected');
+   check(call(mock,'mem_read32',0x80000004)===10,'Wasm guest RAM committed');
+   check(call(mock,'test_policy_calls')===1,'handler called once');
+   outcomes.push(expected);frameCounts.push(end.frames);host.dispose();
+ }
+ return {
+   status:'pass',backend:'real linked typed-W07 Emscripten C++ WASM',
+   errorCodes:outcomes,frameCounts,actualAnimationFrames:frameCounts.reduce((a,b)=>a+b,0),
+   realWasmInstances:2,normalModuleHasTestHooks:false,
+   guestOutputs:[7,10],
+   caution:'Test-only synthetic C++ callback fixture; no authentic Wii devices'
+ };
+}
+try{
+ const data=await run();window.__nsmbTypedPolicy=data;
+ result.dataset.state='pass';
+ result.textContent='PASS — compiled Wasm rejected MMIO with typed errors '+data.errorCodes.join(',');
+ details.textContent=JSON.stringify(data,null,2);
+}catch(error){
+ const data={status:'fail',error:String(error?.stack||error)};
+ window.__nsmbTypedPolicy=data;
+ result.dataset.state='fail';
+ result.textContent='FAIL — typed W07 browser diagnostic';
+ details.textContent=JSON.stringify(data,null,2);
+}
+</script>
+</body></html>
