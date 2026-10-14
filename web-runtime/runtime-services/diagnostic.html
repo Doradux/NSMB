@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Synthetic Input to Wii-Address RAM</title></head>
+<body><h1>RuntimeServices input packet diagnostic — synthetic only</h1>
+<pre id="status" data-state="pending">Loading compiled Wasm</pre>
+<script type="module">
+import create from '/dist/input_snapshot.mjs';
+import { writeSyntheticGamepadSnapshot } from '/host_input.mjs';
+const out=document.getElementById('status');
+try {
+ const module=await create({locateFile:()=>'/dist/input_snapshot.wasm'});
+ const c=(n,...args)=>module['_nsmbw_'+n](...args);
+ c('interop_reset');
+ c('services_input_status_reset');
+ if(c('services_input_store',0x80001000,0x5A,-127,127,0x91)!==1 ||
+   c('services_input_status')!==0) throw Error('INPUT_WRITE_FAILED');
+ if((c('mem_read32',0xC0001000)>>>0)!==0x917F815A)
+   throw Error('BIG_ENDIAN_ALIAS_MISMATCH');
+ if(c('services_input_store',0xCC008000,1,0,0,0)!==0 ||
+   c('services_input_status')!==7)throw Error('INPUT_SENT_TO_MMIO');
+ // W08 synthetic normalized controller -> JS host adapter -> actual C++ Wasm packet.
+ const pad={connected:true,mapping:'standard',index:3,axes:[0.6,-0.6],
+   buttons:Array.from({length:17},()=>({pressed:false,value:0}))};
+ pad.buttons[0].pressed=pad.buttons[1].pressed=pad.buttons[9].pressed=true;
+ const state=writeSyntheticGamepadSnapshot(module,[pad],0x80001000,14);
+ if(!state.written||state.status!==0||
+    (c('mem_read32',0xC0001000)>>>0)!==0x0EC13F07)
+   throw Error('W08_TO_WASM_INPUT_BRIDGE_FAILED');
+ if(c('mem_set_page_budget',1)!==1)throw Error('PAGE_BUDGET_FAIL');
+ if(c('services_input_store',0x80002000,1,0,0,0)!==0||
+   c('services_input_status')!==3||
+   c('mem_pages')!==1)throw Error('QUOTA_MUST_BE_ATOMIC');
+ let sum=0;
+ const start=performance.now();
+ for(let i=0;i<10000;i++){
+   if(c('services_input_store',0x80001000,i&255,(i%255)-127,0,i&255)!==1)
+     throw Error('INPUT_STRESS_FAIL');
+   sum=(sum+c('mem_read32',0x80001000))>>>0;
+ }
+ const elapsed=performance.now()-start;
+ if(!Number.isFinite(elapsed)||c('mem_pages')!==1)throw Error('RESOURCE_LIMIT_FAIL');
+ out.dataset.state='pass';
+ out.textContent='PASS: real Wasm input packet big-endian Wii RAM aliases, MMIO blocked, quota atomic, 10k snapshots; checksum='+sum+'; ms='+elapsed.toFixed(2);
+} catch(error) {
+ out.dataset.state='fail';out.textContent='FAIL: '+(error?.message||String(error));
+ console.error('Synthetic RuntimeServices diagnostic failed',error);
+}
+</script></body></html>
