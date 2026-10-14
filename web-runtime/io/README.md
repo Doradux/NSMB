@@ -15,6 +15,9 @@ playback or a playable NSMB Wii build. Contains **no original game resources**.
 - adapters.mjs: offline-only synthetic sine generator with bounded duration,
   frequency, amplitude and frame count, RMS/peak verification. No live speaker
   playback, no private music/audio data and no long-running audio threads.
+  Phase-2 QA: reject malformed deadzone even with NaN axis input; disconnect
+  oscillator/gain nodes in finally after success OR rendering failure. This
+  prevents retained graph connections but does not establish a measured leak.
 - diagnostic.html: real browser page testing a synthetic standard pad state and
   actual OfflineAudioContext PCM output of 6,000 frames at 48 kHz.
 - test/adapters.test.mjs: deterministic Node tests using synthetic mocks.
