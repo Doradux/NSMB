@@ -25,6 +25,7 @@ export function createFrameHost(module, {
   let settle = null;
   let disposed = false;
   let insideFrame = false;
+  let runGeneration = 0;
 
   const snapshot = () => ({
     frames,
@@ -62,10 +63,14 @@ export function createFrameHost(module, {
   function stop(reason = 'paused') {
     if (!running) return;
     running = false;
-    if (handle !== null) cancelFrame(handle);
+    ++runGeneration; // reject stale callbacks even if restarted immediately
+    const oldHandle = handle;
     handle = null;
     const done = settle;
     settle = null;
+    // Cancellation can fail in hostile browser shims: the tick is still gated
+    // by running=false, so no guest work can execute from a stale callback.
+    if (oldHandle !== null) { try { cancelFrame(oldHandle); } catch {} }
     done?.({ reason, ...snapshot() });
   }
 
@@ -73,14 +78,15 @@ export function createFrameHost(module, {
     if (disposed) return Promise.reject(new Error('Frame host disposed'));
     if (running) return Promise.reject(new Error('Frame host already running'));
     running = true;
+    const thisRun = ++runGeneration;
     return new Promise((resolve, reject) => {
       settle = resolve;
       const tick = () => {
         handle = null;
-        if (!running) return;
+        if (!running || thisRun !== runGeneration) return;
         try {
           const value = frame(true);
-          if (!running) return;
+          if (!running || thisRun !== runGeneration) return;
           if (value.ready === 0) {
             stop(value.paused || value.faulted ? 'blocked' : 'completed');
           } else if (frames >= maxFrames) {
@@ -94,7 +100,15 @@ export function createFrameHost(module, {
           reject(error);
         }
       };
-      handle = requestFrame(tick);
+      try {
+        handle = requestFrame(tick);
+      } catch (error) {
+        // Promise rejection alone does NOT clear the host-owned run state.
+        running = false;
+        settle = null;
+        handle = null;
+        reject(error);
+      }
     });
   }
 

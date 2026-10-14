@@ -125,3 +125,53 @@ test('bounded 256-event history survives recycling without exhausted scheduling'
   assert.equal(call('loop_trace_at',255)>>>16,9,'latest event preserved');
   assert.equal(call('loop_state',9),3);
 });
+
+test('RAF acquisition failure rejects cleanly and the same real-Wasm host can restart',async()=>{
+  const {wasm,call}=await make();
+  assert.equal(call('loop_spawn',12,0x80000000,0x80000004,1,2),1);
+  let initial=true;
+  const host=createFrameHost(wasm,{
+    ids:[12],budget:1,
+    requestFrame:cb=>{
+      if(initial){initial=false;throw Error('synthetic RAF provider crashed');}
+      return setImmediate(cb);
+    },
+    cancelFrame:handle=>clearImmediate(handle)
+  });
+  await assert.rejects(host.start(),/RAF provider crashed/);
+  assert.equal(host.running,false);
+  assert.equal(host.snapshot().contexts[0].pc,0,'failed scheduling must not dispatch');
+  const finished=await host.start();
+  assert.equal(finished.reason,'completed');
+  assert.equal(finished.contexts[0].pc,2);
+  assert.equal(finished.frames,2);
+  assert.equal(call('loop_trace_length'),2);
+  host.dispose();
+});
+
+test('stale callback after failed cancellation cannot dispatch into a restarted host run',async()=>{
+  const {wasm,call}=await make();
+  assert.equal(call('loop_spawn',23,0x80000000,0x80000004,2,1),1);
+  const callbacks=[];
+  const host=createFrameHost(wasm,{
+    ids:[23],budget:1,
+    requestFrame:callback=>{callbacks.push(callback);return callbacks.length;},
+    cancelFrame:()=>{throw Error('cancelAnimationFrame unavailable');}
+  });
+  const first=host.start();
+  host.stop('manual');
+  const stopped=await first;
+  assert.equal(stopped.reason,'manual');
+  assert.equal(stopped.contexts[0].pc,0);
+  const resumed=host.start();
+  assert.equal(callbacks.length,2);
+  callbacks[0](); // stale, scheduled before host.stop()
+  assert.equal(call('loop_trace_length'),0,'old animation must never steal new run work');
+  callbacks[1]();
+  const ended=await resumed;
+  assert.equal(ended.reason,'completed');
+  assert.equal(ended.frames,1);
+  assert.equal(ended.contexts[0].pc,1);
+  assert.equal(call('loop_trace_length'),1,'exactly one guest step from new animation callback');
+  host.dispose();
+});
