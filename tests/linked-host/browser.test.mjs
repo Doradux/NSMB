@@ -99,6 +99,7 @@ test('headless real Chrome drives single-Wasm 5 animation frames, fault PC, inpu
  assert.equal(r.frames[1].contexts[2].pc,0);
  assert.equal(r.frames[1].contexts[2].err,4);
  assert.deepEqual(r.memory,{one:2,two:7});
+ assert.equal(r.stressFrames,128,'128 actual browser RAF cycles without page growth');
  assert.equal(r.deniedGamepad,true);assert.equal(r.offlineAudioFrames,6000);
  assert.equal(r.canvasFallback,'passed');
  assert.deepEqual(nav.errors,[],'CDP scoped console errors');assert.deepEqual(nav.httpErrors,[]);

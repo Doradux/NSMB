@@ -47,6 +47,23 @@ try {
  check(c('mem_read32',0x80000014)===2,'actual W07 source/destination chain id1');
  check(c('mem_read32',0x80001014)===7,'actual W07 source/destination chain id2');
  host.dispose();
+ const firstRunMemory={one:c('mem_read32',0x80000014),two:c('mem_read32',0x80001014)};
+ // Separate 128 actual animation-frame cycles in the SAME Wasm instance.
+ // Reinitialize context/memory between cycles; assert no leaked sparse pages.
+ let stressFrames=0;
+ for(let cycle=0;cycle<128;cycle++){
+  c('loop_reset');check(c('mem_set_page_budget',1)===1,'stress quota');
+  check(c('loop_spawn',10,0x80000000,0x80000010,cycle+1,1)===1,'stress spawn');
+  const iteration=createFrameHost(wasm,{ids:[10],budget:1,maxFrames:2,
+   requestFrame:cb=>requestAnimationFrame(cb),cancelFrame:id=>cancelAnimationFrame(id)});
+  const finished=await iteration.start();
+  check(finished.reason==='completed' && finished.frames===1,'stress frame lifecycle '+cycle);
+  check(finished.contexts[0].pc===1 && finished.contexts[0].regA===cycle+1,
+   'stress guest state '+cycle);
+  check(c('mem_read32',0x80000010)===cycle+1 && c('mem_pages')===1 &&
+   c('loop_trace_length')===1,'stress memory/trace budget '+cycle);
+  iteration.dispose();stressFrames++;
+ }
  const inputs=pollGamepads({getGamepads(){const error=Error('denied');error.name='SecurityError';throw error}});
  check(inputs.connected===false,'denied Gamepad API should degrade to disconnected');
  check(pollGamepads(undefined).connected===false,'absent Gamepad provider should be disconnected');
@@ -63,8 +80,8 @@ try {
   canvasFallback='passed';
  }
  const report={backend:'single actual C++ Emscripten Wasm',frames:events,final:result,
-  memory:{one:c('mem_read32',0x80000014),two:c('mem_read32',0x80001014)},
-  deniedGamepad:!inputs.connected,offlineAudioFrames:audio.frames,canvasFallback};
+  memory:firstRunMemory,
+  stressFrames,deniedGamepad:!inputs.connected,offlineAudioFrames:audio.frames,canvasFallback};
  window.__peachLinkedReport=report;
  details.textContent=JSON.stringify(report,null,2);
  status.dataset.state='pass';status.textContent='PASS: linked Wasm frames, faults, browser IO fallback';

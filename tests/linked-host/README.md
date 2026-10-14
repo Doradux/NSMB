@@ -113,3 +113,24 @@ This is strong evidence for a minimal code fix, **not approval of a future Luigi
 SHA**. Recompile and re-review Luigi's actual published, clean integration
 commit, including the browser tests with its exact module bytes. Never ship
 the synthetic test-policy callback fixture as a real device implementation.
+
+
+## Additional Chrome stability gate
+
+The browser diagnostic now performs **128 extra real requestAnimationFrame cycles**
+in the same linked C++ WebAssembly instance, resetting scheduler and guest RAM,
+spawning a one-op context, checking exact PC/accumulator, sparse-page count of
+one, trace bound of one, deterministic output and host disposal **for each
+cycle**. It retains and separately asserts the original 5-frame, 3-context
+interleaving before reset. Actual headless Chrome test duration was about
+2.5 seconds.
+
+- Discrete disposable typed-policy bridge with the scratch-only post-onFrame
+  fix: **9/9 PASS** including 128 browser frames, 128 Node reset cycles and
+  status 4/5/6 fault behavior.
+- Unmodified SHA \`1f2b4f8\`: browser still **RED** with
+  \`expected completed: blocked\`, before the stress loop can execute. The
+  extra exercise does not mask or skip the original race.
+
+This new evidence is **not an approval** of the uncommitted synthetic bridge.
+The only legitimate next candidate is a *new clean Luigi SHA*, reviewed independently.
