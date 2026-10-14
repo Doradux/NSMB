@@ -15,7 +15,17 @@ const mime = {
   '.png': 'image/png',
   '.ico': 'image/x-icon'
 };
-const allowed = new Set(['index.html', 'styles.css', 'app.js', 'assets/world-1-1.webp', 'assets/world-1-1.png', 'assets/favicon.svg', 'web-runtime/lab.html', 'web-runtime/gpu-lab.html', 'web-runtime/gpu-lab.mjs', 'web-runtime/dist/guest_memory.mjs', 'web-runtime/dist/guest_memory.wasm']);
+const allowed = new Set([
+  'index.html', 'styles.css', 'app.js',
+  'assets/world-1-1.webp', 'assets/world-1-1.png', 'assets/favicon.svg',
+  'web-runtime/lab.html', 'web-runtime/gpu-lab.html', 'web-runtime/gpu-lab.mjs',
+  'web-runtime/dist/guest_memory.mjs', 'web-runtime/dist/guest_memory.wasm',
+  // Reviewed synthetic W03 + typed-W07 single-Wasm host; NEVER serve test fixtures.
+  'web-runtime/frame-host/demo.html',
+  'web-runtime/frame-host/host.mjs',
+  'web-runtime/frame-host/dist/frame_loop.mjs',
+  'web-runtime/frame-host/dist/frame_loop.wasm'
+]);
 http.createServer((req,res) => {
   let pathname;
   try {

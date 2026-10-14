@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>W03/W07 Synthetic WebAssembly Frame Host</title>
+<style>
+:root{font-family:system-ui;color-scheme:dark}body{margin:0;background:#131b25;color:#ecf2fa;padding:24px}
+main{max-width:900px;margin:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;background:#202e3f;border-radius:8px}
+#status{padding:12px;background:#385373;border-radius:8px}#status[data-state=pass]{background:#215b40}
+#status[data-state=fail]{background:#823e3e}
+</style></head>
+<body><main>
+<h1>W03 + W07 synthetic WebAssembly frame scheduler</h1>
+<p>This diagnostic invokes real WebAssembly C++ code with checked guest RAM, using browser animation-frame boundaries. No Wii game code or assets.</p>
+<p id="status" role="status" aria-live="polite" data-state="pending">Running browser Wasm checks…</p>
+<pre id="report"></pre>
+</main>
+<script type="module">
+import createModule from './dist/frame_loop.mjs';
+import { createFrameHost } from './host.mjs';
+const status=document.querySelector('#status');
+const report=document.querySelector('#report');
+function insist(condition,message){if(!condition)throw Error(message)}
+try {
+  const mod=await createModule({locateFile:()=>new URL('./dist/frame_loop.wasm',import.meta.url).href});
+  const c=(name,...args)=>mod['_nsmbw_'+name](...args);
+  c('loop_reset');
+  for(const [id,base,value,dst,addend,limit] of [
+    [1,0x80001000,10,0x80001010,1,3],
+    [2,0x80002000,20,0x80002010,2,3],
+    [3,0x80003000,30,0xCC000000,3,3]
+  ]) {
+    insist(c('mem_write32',base,value)===1,'Wasm source memory write '+id);
+    insist(c('loop_spawn',id,base,dst,addend,limit)===1,'Wasm spawn '+id);
+  }
+  let host;
+  const observed=[];
+  host=createFrameHost(mod,{
+    ids:[1,2,3],budget:2,maxFrames:8,
+    onFrame: snapshot=>{
+      observed.push({frame:snapshot.frames,executed:snapshot.executed,
+        pcs:snapshot.contexts.map(x=>x.pc)});
+      insist(snapshot.executed<=2,'frame exceeded two checked guest steps');
+      if(snapshot.frames===1)insist(host.suspend(2)===1,'suspend ctx2');
+      if(snapshot.frames===2)insist(host.resume(2)===1,'resume ctx2');
+    }
+  });
+  const end=await host.start(); // real requestAnimationFrame boundaries
+  insist(end.frames===4,'four browser animation frames expected');
+  insist(end.reason==='blocked','faulted thread should block final run');
+  insist(end.done===2&&end.faulted===1,'one guest fault must not stop two healthy threads');
+  insist(end.contexts[2].guestError===4,'MMIO status must be preserved');
+  insist(end.contexts[2].pc===0&&end.contexts[2].regA===0,'failed guest registers unchanged');
+  insist(end.contexts[0].regA===13&&end.contexts[1].regA===26,'per-thread accumulator isolation');
+  insist(c('mem_read32',0x80001018)===13&&c('mem_read32',0x80002018)===26,'real guest memory writes');
+  const trace=Array.from({length:c('loop_trace_length')},(_,i)=>c('loop_trace_at',i)>>>16);
+  insist(JSON.stringify(trace)===JSON.stringify([1,2,3,1,2,1,2]),'deterministic scheduler ordering');
+  insist(host.cancel(3)===1,'cancel faulted context');
+  const final=host.snapshot();
+  insist(final.cancelled===1&&final.done===2,'cancel status');
+  host.dispose();
+  const output={outcome:'PASS',backend:'real Emscripten W03+W07 WebAssembly',frames:observed,
+    trace,checkedRam:{one:13,two:26},guestFaultCode:4,final};
+  window.__nsmbPhase2=output;
+  report.textContent=JSON.stringify(output,null,2);
+  status.dataset.state='pass';
+  status.textContent='PASS — real Wasm W03/W07: 3 contexts, 4 browser frames, bounded work, checked RAM, isolated MMIO fault';
+}catch(error){
+  const message=String(error?.stack||error);
+  window.__nsmbPhase2={outcome:'FAIL',error:message};
+  report.textContent=message;status.dataset.state='fail';status.textContent='FAIL — '+String(error.message||error);
+}
+</script></body></html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>W03 + W07 Joined Wasm Frame Host</title>
+<style>
+:root{font-family:system-ui;color-scheme:dark}body{margin:0;background:#111b27;color:#e6f0fc;padding:24px}
+main{max-width:950px;margin:0 auto}p{line-height:1.6;color:#b8c9dc}
+nav{display:flex;gap:.6rem;flex-wrap:wrap;margin:1.3rem 0}button{font:inherit;border:1px solid #536b85;border-radius:9px;background:#233953;color:#eff6ff;padding:.7rem 1rem;cursor:pointer}
+button:hover{background:#345371}button:focus-visible{outline:3px solid #81b8e8;outline-offset:3px}
+#status{padding:1rem;border-radius:9px;background:#3a536b}
+#status[data-mode=blocked]{background:#694d2b}#status[data-mode=error]{background:#783a42}
+#status[data-mode=completed]{background:#235f47}
+pre{background:#1d2b3d;padding:1.2rem;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+</style></head>
+<body><main>
+<h1>Browser-hosted synthetic Wii-style WebAssembly scheduler</h1>
+<p>One actual C++ Wasm module linking W03 bounded contexts, W04 sparse memory and W07 typed MMIO policy. No Nintendo game code, hardware emulation, or playable game.</p>
+<nav aria-label="Wasm guest execution controls">
+<button id="start" type="button">Start</button>
+<button id="pause" type="button">Pause</button>
+<button id="resume" type="button">Resume</button>
+<button id="stop" type="button">Stop</button>
+<button id="reset" type="button">Reset</button>
+</nav>
+<p id="status" role="status" aria-live="polite" data-mode="initializing">Loading compiled WebAssembly…</p>
+<pre id="details" aria-label="Guest context and memory state"></pre>
+</main>
+<script type="module">
+import createModule from './dist/frame_loop.mjs';
+import {createFrameHost,GuestState} from './host.mjs';
+const status=document.querySelector('#status'),details=document.querySelector('#details');
+const ids=[1,2,3];
+let wasm,host,epoch=0;
+const call=(name,...args)=>{
+ const fn=wasm?.['_nsmbw_'+name];
+ if(typeof fn!=='function')throw Error('Missing linked Wasm export: '+name);
+ return fn(...args);
+};
+function mark(mode,text){status.dataset.mode=mode;status.textContent=text;}
+function render(info){
+ const snapshot=info||host.snapshot();
+ const data={
+   mode:status.dataset.mode,frames:snapshot.frames,ready:snapshot.ready,paused:snapshot.paused,
+   done:snapshot.done,faulted:snapshot.faulted,cancelled:snapshot.cancelled,
+   executedThisFrame:snapshot.executed??0,
+   sparseGuestPages:call('mem_pages'),
+   traceLength:snapshot.traceLength,
+   contexts:snapshot.contexts,
+   lastEvents:Array.from({length:call('loop_trace_length')},(_,i)=>call('loop_trace_at',i)>>>0).slice(-12)
+ };
+ details.textContent=JSON.stringify(data,null,2);
+ return data;
+}
+function initialize(){
+ ++epoch;
+ if(host){host.stop('reset');host.dispose();}
+ call('loop_reset');
+ if(call('mem_set_page_budget',3)!==1)throw Error('Guest budget failure');
+ for(const [id,source,initial,dest,delta,steps] of [
+   [1,0x80001000,10,0x80001020,1,4],
+   [2,0x80002000,20,0x80002020,2,4],
+   [3,0x80003000,30,0xCC008000,3,1]
+ ]) {
+   if(!call('mem_write32',source,initial))throw Error('Initial memory allocation failed');
+   if(!call('loop_spawn',id,source,dest,delta,steps))throw Error('Unable to spawn context '+id);
+ }
+ host=createFrameHost(wasm,{ids,budget:1,maxFrames:32,onFrame:render});
+ mark('ready','Ready — Start dispatches one checked Wasm instruction per animation frame');
+ render();
+}
+async function start(){
+ if(!host||host.running)return;
+ const mine=epoch;
+ mark('running','Running guest contexts across browser animation frames');
+ try{
+   const outcome=await host.start();
+   if(mine!==epoch)return; // a Reset invalidates any previous Promise completion
+   mark(outcome.reason,outcome.reason==='blocked'
+     ?'Blocked — two contexts done; MMIO guest fault code 4 was isolated'
+     :'Host finished: '+outcome.reason);
+   render(outcome);
+ }catch(error){
+   if(mine!==epoch)return;
+   mark('error','Host execution error: '+String(error.message||error));
+   render();
+ }
+}
+function pause(){
+ if(!host?.running)return;
+ host.stop('paused');
+ for(const id of ids)if(call('loop_state',id)===GuestState.READY)host.suspend(id);
+ mark('paused','Paused — context program counters preserved');
+ render();
+}
+function resume(){
+ if(!host||host.running)return;
+ for(const id of ids)if(call('loop_state',id)===GuestState.PAUSED)host.resume(id);
+ void start();
+}
+function stop(){
+ if(!host)return;
+ host.stop('stopped');
+ for(const id of ids)if([GuestState.READY,GuestState.PAUSED,GuestState.FAULT].includes(call('loop_state',id)))host.cancel(id);
+ mark('stopped','Stopped — remaining context work cancelled; Reset to begin anew');
+ render();
+}
+function reset(){
+ try{initialize();}catch(error){mark('error','Reset error: '+String(error.message||error));}
+}
+document.querySelector('#start').addEventListener('click',()=>void start());
+document.querySelector('#pause').addEventListener('click',pause);
+document.querySelector('#resume').addEventListener('click',resume);
+document.querySelector('#stop').addEventListener('click',stop);
+document.querySelector('#reset').addEventListener('click',reset);
+try{
+ wasm=await createModule({locateFile:()=>new URL('./dist/frame_loop.wasm',import.meta.url).href});
+ initialize();
+ window.__nsmbJoinedDemo={get snapshot(){return host.snapshot()},get mode(){return status.dataset.mode},
+   get guestPages(){return call('mem_pages')},controls:{start,pause,resume,stop,reset}};
+}catch(error){mark('error','WebAssembly unavailable: '+String(error.message||error));}
+</script></body></html>
