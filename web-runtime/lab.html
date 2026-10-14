@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NSMB/Wii — WebAssembly Memory Diagnostic</title>
+<style>
+:root{color-scheme:dark;font-family:ui-sans-serif,system-ui,Segoe UI,Arial,sans-serif}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1b18;color:#e7f3e7}
+main{width:min(670px,calc(100% - 32px));padding:35px;border:1px solid #385449;border-radius:20px;background:#1a2d26}
+header{color:#9ed3ae;font-size:12px;letter-spacing:2px;font-weight:750}h1{letter-spacing:-1px;font-size:30px;margin:18px 0}
+p{color:#b7cabe;line-height:1.65}#result{padding:17px 20px;background:#2a4034;border-radius:9px;margin-top:24px;font-weight:700}
+#log{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;background:#12241b;padding:20px;border-radius:9px;line-height:1.8}
+a{color:#c5e8c8}small{color:#b6cabc}
+</style></head>
+<body>
+<main>
+<header>NSMB/WEB · EXPERIMENTAL WASM TEST</header>
+<h1>Memory backend diagnostic</h1>
+<p>This page runs the browser-targeted C++ RAM adapter compiled into WebAssembly. It tests address mirroring, PowerPC big-endian values and unmapped memory behavior.</p>
+<div id="result" role="status">Loading WebAssembly…</div><pre id="log">Waiting for module.</pre>
+<p><small>This is a developer diagnostic, NOT Mario gameplay. The full Wii engine is not ported yet.</small></p>
+<a href="/">← Back to project</a>
+</main>
+<script type="module">
+import createGuestMemory from './dist/guest_memory.mjs';
+const result=document.getElementById('result'),log=document.getElementById('log');
+try{
+ const instance=await createGuestMemory({locateFile:(name)=>'./dist/'+name});
+ const call=(name,...args)=>instance['_nsmbw_mem_'+name](...args);
+ const checks=[];
+ const check=(label,passed)=>{checks.push([label,passed]);if(!passed)throw Error(label);};
+ call('reset');
+ check('Lazy page allocation',call('pages')===0);
+ check('MEM1 cached store',call('write32',0x80001234,0xDEADBEEF)===1);
+ check('MEM1 uncached alias',call('read32',0xC0001234)>>>0===0xDEADBEEF);
+ check('Big-endian memory',call('read8',0x80001234)===0xDE);
+ check('Unaligned halfword',call('read16',0x80001235)===0xADBE);
+ check('Page boundary store',call('write32',0x80000FFF,0x11223344)===1);
+ check('Page boundary alias read',call('read32',0xC0000FFF)>>>0===0x11223344);
+ check('MEM2 cached store',call('write32',0x90002000,0xCAFEBABE)===1);
+ check('MEM2 uncached alias',call('read32',0xD0002000)>>>0===0xCAFEBABE);
+ check('MMIO protection',call('write8',0xCC000000,255)===0 && call('error')===1);
+ check('Reset clears data',(()=>{call('reset');return call('pages')===0 && call('read32',0x80001234)===0})());
+ log.textContent=checks.map(([name,passed])=>(passed?'✓ ':'✗ ')+name).join('\n');
+ result.textContent='PASS — '+checks.length+' checks executed in the browser';
+ result.style.background='#315b40';
+}catch(e){
+ result.textContent='FAIL — WebAssembly diagnostic could not complete';
+ result.style.background='#773b40';
+ log.textContent=String(e?.stack||e);
+ console.error('NSMB/Wii wasm memory diagnostic:',e);
+}
+</script>
+</body></html>

@@ -8,12 +8,14 @@ const mime = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
   '.png': 'image/png',
   '.ico': 'image/x-icon'
 };
-const allowed = new Set(['index.html', 'styles.css', 'app.js', 'assets/world-1-1.webp', 'assets/world-1-1.png', 'assets/favicon.svg']);
+const allowed = new Set(['index.html', 'styles.css', 'app.js', 'assets/world-1-1.webp', 'assets/world-1-1.png', 'assets/favicon.svg', 'web-runtime/lab.html', 'web-runtime/dist/guest_memory.mjs', 'web-runtime/dist/guest_memory.wasm']);
 http.createServer((req,res) => {
   const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
   const requested = pathname === '/' ? 'index.html' : pathname.slice(1);
