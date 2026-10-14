@@ -49,3 +49,30 @@ address ranges are a necessary but **insufficient** compatibility signal.
 
 The team must separately reconcile the expected original DOL hash and verify
 the runtime at the same version before compiling a genuine web game.
+
+## Native override registration coverage
+
+The additional read-only hook audit compares public WiiCompiled `PPC_NATIVE_OVERRIDE`
+registration addresses with a locally held translation metadata file. It masks
+C/C++ comments and literals; resolves only literal `#if 0` / `#if 1` branches,
+and treats unknown build flags as conditional rather than assuming a particular
+platform configuration.
+
+```powershell
+python scripts/audit_hooks.py `
+  --runtime-root upstream-nsmbw/runtime `
+  --translation-metadata 'C:\private\experiments\translation.json' `
+  --output 'C:\private\experiments\hook-coverage-report.json'
+python -m unittest discover -s tests -p 'test_audit_*.py' -v
+```
+
+Exit 0 means at least one eligible active or conditional registration exists,
+with every such entry present among translated function start addresses. Exit 2
+means coverage is incomplete or there are no hooks to validate. Exit 3 is an
+input or parsing error. Disabled/commented registrations are reported but do
+not trigger a compatibility failure.
+
+**Scope:** This does not validate hook function signatures, runtime ABI,
+register state, side effects, device emulation, compiled guest code, platform
+rendering or game boot. It never emits game executable contents. Reports
+containing private translation addresses should remain outside public Git.
