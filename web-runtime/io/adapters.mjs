@@ -1,8 +1,8 @@
 // W08: synthetic gamepad and audio browser feasibility; no private game content.
 const BUTTONS = Object.freeze({ primary: 0, secondary: 1, pause: 9, up: 12, down: 13, left: 14, right: 15 });
 export function normalizeAxis(value, deadzone = 0.2) {
-  if (!Number.isFinite(value)) return 0;
   if (!Number.isFinite(deadzone) || deadzone < 0 || deadzone >= 1) throw Error('INVALID_DEADZONE');
+  if (!Number.isFinite(value)) return 0;
   const limited = Math.max(-1, Math.min(1, value));
   if (Math.abs(limited) <= deadzone) return 0;
   return Math.sign(limited) * (Math.abs(limited) - deadzone) / (1 - deadzone);
@@ -50,18 +50,26 @@ export async function renderSyntheticTone(OfflineCtor, { sampleRate = 48000, dur
       !Number.isFinite(volume) || volume < 0 || volume > 0.5) throw Error('INVALID_AUDIO_OPTIONS');
   const samples = Math.ceil(sampleRate * duration);
   const context = new OfflineCtor(1, samples, sampleRate);
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = 'sine'; oscillator.frequency.value = frequency;
-  gain.gain.value = volume;
-  oscillator.connect(gain); gain.connect(context.destination);
-  oscillator.start(0); oscillator.stop(samples / sampleRate);
-  const result = await context.startRendering();
-  const data = result.getChannelData(0);
-  let sumSq = 0, peak = 0;
-  for (const v of data) { if (!Number.isFinite(v)) throw Error('NONFINITE_AUDIO'); sumSq += v * v; peak = Math.max(peak, Math.abs(v)); }
-  return { sampleRate: result.sampleRate, frames: data.length,
-    rms: Math.sqrt(sumSq / data.length), peak };
+  let oscillator, gain;
+  try {
+    oscillator = context.createOscillator();
+    gain = context.createGain();
+    oscillator.type = 'sine'; oscillator.frequency.value = frequency;
+    gain.gain.value = volume;
+    oscillator.connect(gain); gain.connect(context.destination);
+    oscillator.start(0); oscillator.stop(samples / sampleRate);
+    const result = await context.startRendering();
+    const data = result.getChannelData(0);
+    let sumSq = 0, peak = 0;
+    for (const v of data) { if (!Number.isFinite(v)) throw Error('NONFINITE_AUDIO'); sumSq += v * v; peak = Math.max(peak, Math.abs(v)); }
+    return { sampleRate: result.sampleRate, frames: data.length,
+      rms: Math.sqrt(sumSq / data.length), peak };
+  } finally {
+    // Offline graphs should release connections on both success and rejection.
+    // This does not prove real-time playback lifecycle or a browser memory leak.
+    oscillator?.disconnect?.();
+    gain?.disconnect?.();
+  }
 }
 // Live playback is intentionally NOT offered: AudioContext needs explicit user gesture
 // and game-synchronized audio queue, which W08 does not claim to implement.

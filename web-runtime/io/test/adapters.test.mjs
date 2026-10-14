@@ -87,3 +87,26 @@ test('untrusted partial Gamepad fields must never crash input loop',()=>{
   bad.buttons[0]=null;bad.axes=[0.1];
   assert.equal(snapshotGamepad([bad]).primary,false);
 });
+
+test('axis validation rejects invalid deadzone even when sample is NaN',()=>{
+  assert.throws(()=>normalizeAxis(NaN,-1),/INVALID_DEADZONE/);
+  assert.throws(()=>normalizeAxis(Infinity,1),/INVALID_DEADZONE/);
+});
+test('offline audio disconnects oscillator/gain after successful or rejected rendering',async()=>{
+  const state={disconnect:0,stops:0};
+  class MockOffline {
+    constructor(){this.destination={};}
+    createOscillator(){return {frequency:{value:0},connect(){},start(){},stop(){state.stops++;},disconnect(){state.disconnect++;}}}
+    createGain(){return {gain:{value:0},connect(){},disconnect(){state.disconnect++;}}}
+    async startRendering(){
+      if(state.reject)throw Error('RENDER_DENIED');
+      return {sampleRate:8000,getChannelData:()=>new Float32Array(80).fill(0.25)};
+    }
+  }
+  await renderSyntheticTone(MockOffline,{sampleRate:8000,duration:0.01,frequency:100});
+  assert.equal(state.disconnect,2);
+  state.reject=true;
+  await assert.rejects(renderSyntheticTone(MockOffline,{sampleRate:8000,duration:0.01,frequency:100}),/RENDER_DENIED/);
+  assert.equal(state.disconnect,4);
+  assert.equal(state.stops,2);
+});
