@@ -24,6 +24,11 @@ try {
  if(!state.written||state.status!==0||
     (c('mem_read32',0xC0001000)>>>0)!==0x0EC13F07)
    throw Error('W08_TO_WASM_INPUT_BRIDGE_FAILED');
+ pad.connected=false;
+ const neutral=writeSyntheticGamepadSnapshot(module,[pad],0x80001000,15);
+ if(!neutral.written||!neutral.disconnected||neutral.status!==0||
+    (c('mem_read32',0xC0001000)>>>0)!==0x0F000000)
+   throw Error('DISCONNECT_STUCK_BUTTONS');
  if(c('mem_set_page_budget',1)!==1)throw Error('PAGE_BUDGET_FAIL');
  if(c('services_input_store',0x80002000,1,0,0,0)!==0||
    c('services_input_status')!==3||

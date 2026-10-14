@@ -32,8 +32,10 @@ a device handler were installed. Address must be 4-byte aligned.
 JS web-runtime/runtime-services/host_input.mjs accepts an ordinary W08
 **synthetic standard gamepad snapshot** via W08's snapshotGamepad(), maps
 buttons and normalizes signed axes with symmetric magnitude quantization.
-Disconnected input does not create a guest write. The status result
-is returned to host JS; no background polling occurs.
+Disconnected input writes a **neutral guest packet** (buttons and axes zero)
+so previously pressed buttons do not remain latched. That write is still
+checked and any page-quota failure is returned to host JS. No background
+polling or physical controller capture occurs.
 
 Sequence is an 8-bit stamp, not a real VI timer or reliable multi-context
 ordering token. The host must own its epoch and sample input at a
