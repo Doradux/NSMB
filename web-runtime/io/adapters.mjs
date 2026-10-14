@@ -13,20 +13,33 @@ function pressed(button) {
   return !!button && (button.pressed === true || (Number.isFinite(button.value) && button.value > 0.5));
 }
 export function snapshotGamepad(gamepads, { deadzone = 0.2, preferIndex = null } = {}) {
-  if (!Array.isArray(gamepads) && !(gamepads && typeof gamepads.length === 'number')) return emptyInput();
+  // Browser Gamepad lists are tiny. Reject hostile array-likes before Array.from
+  // can allocate millions of slots or invoke arbitrary getters.
+  if (!gamepads || !Number.isSafeInteger(gamepads.length) || gamepads.length < 0 || gamepads.length > 32)
+    return emptyInput();
   if (!Number.isFinite(deadzone) || deadzone < 0 || deadzone >= 1) throw Error('INVALID_DEADZONE');
   const candidates = Array.from(gamepads).filter(p => p && p.connected !== false && p.mapping === 'standard');
   const gamepad = candidates.find(p => p.index === preferIndex) || candidates.sort((a, b) => a.index - b.index)[0];
   if (!gamepad || !gamepad.buttons || !gamepad.axes) return emptyInput();
   const b = i => pressed(gamepad.buttons[i]);
-  const moveX = b(BUTTONS.left) ? -1 : b(BUTTONS.right) ? 1 : normalizeAxis(gamepad.axes[0], deadzone);
-  const moveY = b(BUTTONS.up) ? -1 : b(BUTTONS.down) ? 1 : normalizeAxis(gamepad.axes[1], deadzone);
+  const left = b(BUTTONS.left), right = b(BUTTONS.right);
+  const up = b(BUTTONS.up), down = b(BUTTONS.down);
+  // Opposite digital inputs cancel; digital intent overrides analog when active.
+  const moveX = left || right ? Number(right) - Number(left) : normalizeAxis(gamepad.axes[0], deadzone);
+  const moveY = up || down ? Number(down) - Number(up) : normalizeAxis(gamepad.axes[1], deadzone);
   return { connected: true, index: gamepad.index, moveX, moveY,
     primary: b(BUTTONS.primary), secondary: b(BUTTONS.secondary), pause: b(BUTTONS.pause) };
 }
 export function pollGamepads(provider, options = {}) {
   if (!provider || typeof provider.getGamepads !== 'function') return emptyInput();
-  return snapshotGamepad(provider.getGamepads(), options);
+  try {
+    return snapshotGamepad(provider.getGamepads(), options);
+  } catch (error) {
+    // getGamepads may throw SecurityError under Permissions-Policy restrictions.
+    // Never let an unavailable controller API crash the host frame loop.
+    if (error?.name === 'SecurityError' || error?.name === 'NotAllowedError') return emptyInput();
+    throw error;
+  }
 }
 export async function renderSyntheticTone(OfflineCtor, { sampleRate = 48000, duration = 0.125,
   frequency = 440, volume = 0.15 } = {}) {

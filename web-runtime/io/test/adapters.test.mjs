@@ -61,3 +61,29 @@ test('mocked OfflineAudioContext has deterministic PCM statistics and no live ou
   const rendered=await renderSyntheticTone(MockOffline,{sampleRate:8000,duration:0.01,frequency:100});
   assert.deepEqual(rendered,{sampleRate:8000,frames:80,rms:0.25,peak:0.25});
 });
+
+test('malicious huge array-like gamepad collection is bounded before enumeration', () => {
+  let reads=0;
+  const hostile={length:1_000_000,get 0(){ reads++; return make(0); }};
+  assert.equal(snapshotGamepad(hostile).connected,false,'huge provider snapshots must fail closed');
+  assert.equal(reads,0);
+});
+test('incompatible simultaneous digital directions cancel instead of order bias', () => {
+  const p=make();
+  p.buttons[14].pressed=true;p.buttons[15].pressed=true;
+  p.buttons[12].pressed=true;p.buttons[13].pressed=true;
+  assert.equal(snapshotGamepad([p]).moveX,0);
+  assert.equal(snapshotGamepad([p]).moveY,0);
+});
+test('browser Gamepad provider can be blocked by permissions policy and must fail closed', () => {
+  const provider={getGamepads(){throw new DOMException('blocked','SecurityError');}};
+  assert.equal(pollGamepads(provider).connected,false);
+});
+test('untrusted partial Gamepad fields must never crash input loop',()=>{
+  const pad=make();
+  pad.axes=null;
+  assert.equal(snapshotGamepad([pad]).connected,false);
+  const bad=make();
+  bad.buttons[0]=null;bad.axes=[0.1];
+  assert.equal(snapshotGamepad([bad]).primary,false);
+});

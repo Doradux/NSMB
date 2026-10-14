@@ -8,6 +8,10 @@ playback or a playable NSMB Wii build. Contains **no original game resources**.
 - adapters.mjs: pure standard-Gamepad mapping, stable index selection, analog
   deadzone/clamping, D-pad priority, action and pause buttons, safe disconnect
   defaults; no assumptions that every device uses the standard mapping.
+  Phase-2 protection: deny oversized/untrusted gamepad snapshots before
+  allocation, cancel simultaneous opposite digital directions and tolerate
+  Permissions-Policy SecurityError/NotAllowedError as disconnected input.
+  These paths have explicit red-first synthetic regression tests.
 - adapters.mjs: offline-only synthetic sine generator with bounded duration,
   frequency, amplitude and frame count, RMS/peak verification. No live speaker
   playback, no private music/audio data and no long-running audio threads.
