@@ -85,10 +85,14 @@ export function createFrameHost(module, {
         handle = null;
         if (!running || thisRun !== runGeneration) return;
         try {
-          const value = frame(true);
+          frame(true);
           if (!running || thisRun !== runGeneration) return;
-          if (value.ready === 0) {
-            stop(value.paused || value.faulted ? 'blocked' : 'completed');
+          // onFrame can synchronously wake/resume a guest after the snapshot
+          // returned by frame() was captured. The post-callback state is the
+          // only valid basis for deciding whether to stop the host loop.
+          const live = snapshot();
+          if (live.ready === 0) {
+            stop(live.paused || live.faulted ? 'blocked' : 'completed');
           } else if (frames >= maxFrames) {
             stop('frame-limit');
           } else {

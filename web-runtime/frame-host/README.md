@@ -11,7 +11,7 @@ The **normal runtime** `dist/frame_loop.mjs/.wasm` is **ONE actual Emscripten Wa
 - W04 big-endian 8/16/32-bit checked Wii MEM1/MEM2 sparse RAM backing and configurable page budget;
 - W07 typed MMIO/GX checked policy, which **fails closed** without a registered C++ handler.
 
-The exported scheduler interface is `nsmbw_loop_{reset,spawn,tick,frame,suspend,resume,cancel,reap,retry_quota,state,pc,reg_a,guest_error,yields,ready,paused,done,faulted,cancelled,trace_length,trace_at,trace_dropped,error}`. Read-only browser actions use `host.mjs` to call the Wasm exports via `requestAnimationFrame`, maximum 1..64 steps per frame and a finite maximum frame count. Host state has per-run generation counters, cancellation guards and failed-RAF retry protection. Every guest write executes **before** committing its PC, registers or DONE status. Status is captured immediately into the affected guest context.
+The exported scheduler interface is `nsmbw_loop_{reset,spawn,tick,frame,suspend,resume,cancel,reap,retry_quota,state,pc,reg_a,guest_error,yields,ready,paused,done,faulted,cancelled,trace_length,trace_at,trace_dropped,error}`. Read-only browser actions use `host.mjs` to call the Wasm exports via `requestAnimationFrame`, maximum 1..64 steps per frame and a finite maximum frame count. Host state has per-run generation counters, cancellation guards and failed-RAF retry protection. Crucially, the run-loop makes terminal stop/blocked decisions from a **fresh snapshot after onFrame**; callbacks may synchronously wake a guest. This fixes Peach's independently reproduced premature-stop defect. Every guest write executes **before** committing its PC, registers or DONE status. Status is captured immediately into the affected guest context.
 
 The current W07 checked operation is `nsmbw_interop_step(srcGuest:u32,destGuest:u32,addend:u32)->1/0` followed by `nsmbw_interop_status()->0..6`. The full failure contract:
 
@@ -51,12 +51,12 @@ node --test @cases
 ```
 
 From authorized `marcos` 2026-10-14:
-- **16/16** original reviewed linked host tests on current W07: real Wasm, actual Chrome, Asyncify rejection and lifecycle/fault handling.
+- **17/17** original linked host tests plus a red-first regression for wake/resume inside onFrame, on current W07: real Wasm, actual Chrome, Asyncify rejection and lifecycle/fault handling.
 - **5/5** additional Node typed-policy tests for status4/5/6, malformed or rejected device callback, strict no-handler runtime, MMIO/GX boundary and reset.
 - **1/1** actual Chrome typed-policy test; browser invokes two compiled Wasm instances (normal and test fixture) and validates guest error codes 4/5/6 across five actual RAF callbacks.
 - **1/1** interactive-site Chrome test for Start/Pause/Resume/Stop/Reset against compiled normal Wasm, exact server allowlist, malformed URLs and private/fixture denial.
 - **2/2** 128-cycle Node + Chrome stress tests on a **single normal linked Wasm instance** per test: 128 resets, 512 real Chrome RAF callbacks, 896 guest operations, 128 isolated MMIO failures, no guest-page or guest-PC leakage.
-- **25/25 expected** across the above suites when Chrome/Brave is present and explicitly run. Any skipped browser test is NOT considered verified.
+- **26/26 expected** across the above suites when Chrome/Brave is present and explicitly run. Any skipped browser test is NOT considered verified.
 
 The code does NOT prove process/linear-Wasm heap OOM safety (`HEAPU8` isn't exposed), frame-accurate Wii timing, native stackful `HostContext::Switch` semantics, ISR/interrupt correctness, translated PPC ABI, actual MMIO/HLE handlers, GX rendering, original boot or gameplay. These remain gated by Mario's private W01 verification and additional independent reviews.
 
@@ -64,7 +64,7 @@ The code does NOT prove process/linear-Wasm heap OOM safety (`HEAPU8` isn't expo
 
 1. Rebuild normal and fixture Wasm using your own authorized Emscripten SDK; verify the generated *normal* module has no mock callback exports.
 2. Run every Node and **actual browser** test from a clean checkout, inspect console errors and HTTP allowlist.
-3. Inject final-instruction MMIO/status5/status6 failures: check no PC/register/DONE commit, no peer corruption, no secret files.
+3. Inject final-instruction MMIO/status5/status6 failures: check no PC/register/DONE commit, no peer corruption, no secret files. Reproduce Peach QA 6dd8db6 wake-in-onFrame regression: onFrame changes READY from 0 to 1, host must re-snapshot before stopping. The original external QA assumes its test hooks live in the normal module; run its typed-only assertion against the isolated fixture, NEVER put callbacks into normal Wasm.
 4. Inject initial RAF throw and stale callbacks after cancellation/stop; verify restart works and old callbacks cannot consume new session work.
 5. Repeat 128 resets with three contexts: bounded dispatch and cleared pages/trace. Critique actual heap bounds separately.
 6. Demand separate proof before claiming authentic Wii game boot. Only Mario merges reviewed work.

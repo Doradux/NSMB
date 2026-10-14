@@ -175,3 +175,34 @@ test('stale callback after failed cancellation cannot dispatch into a restarted 
   assert.equal(call('loop_trace_length'),1,'exactly one guest step from new animation callback');
   host.dispose();
 });
+
+test('onFrame resumes a paused guest before host decides all contexts are blocked',async()=>{
+  const {wasm,call:c}=await make();
+  assert.equal(c('mem_write32',0x80000000,0),1);
+  assert.equal(c('mem_write32',0x80001000,3),1);
+  assert.equal(c('loop_spawn',1,0x80000000,0x80000010,1,2),1);
+  assert.equal(c('loop_spawn',2,0x80001000,0x80001010,2,2),1);
+  assert.equal(c('loop_spawn',3,0x80000000,0xCC008000,3,1),1);
+  let host;
+  host=createFrameHost(wasm,{
+    ids:[1,2,3],budget:1,maxFrames:16,
+    requestFrame:callback=>setImmediate(callback),
+    cancelFrame:id=>clearImmediate(id),
+    onFrame:frame=>{
+      if(frame.frames===1)assert.equal(host.suspend(2),1);
+      if(frame.frames===3){
+        assert.equal(host.resume(2),1,'wake guest2 from browser frame callback');
+        assert.equal(host.cancel(3),1,'cancel denied MMIO guest3');
+      }
+    }
+  });
+  const finished=await host.start();
+  assert.equal(finished.reason,'completed',
+    'post-onFrame READY transition must prevent premature blocked stop');
+  assert.equal(finished.frames,5,'resumed guest receives two extra frames');
+  assert.equal(finished.ready,0);
+  assert.equal(finished.done,2);
+  assert.equal(finished.cancelled,1);
+  assert.deepEqual(finished.contexts.map(x=>x.pc),[2,2,0]);
+  host.dispose();
+});
