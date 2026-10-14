@@ -32,3 +32,17 @@ python .\inspect_source.py "D:\ruta\juego.iso"
 python .\inspect_source.py "D:\ruta\carpeta_extraida"
 
 No publicar la ISO, los binarios ni los recursos de Nintendo en GitHub.
+## Verified development progress (2026-10-14)
+- Workstation: marcos (Windows). Build tools installed privately in `Documents/NSMBW-Private/toolchain` (dotnet 8.0.426, Emscripten 6.0.12).
+- Translation solution compiles with zero errors; 642/642 tests pass (`translator/Translator.sln`).
+- Wii disc ID and revision: SMNE01 USA Rev 1. Disc verification reports SHA-1 `aa7b134a7606435ddcd735f2964ebdecde38c2ef`.
+- `main.dol` actual SHA-256 is `166eb6b7cca21418e316a6cfbf1bfbf0a213eb8f6396d42126a1482bb764a955`, but pinned upstream expects `6d755ec24c395fee600a856a85785e0e99c0b7ecb680d573a6cdd1aa6f7beee7`. Do not silently disable this check: addresses, hooks and profile integrity must be verified first.
+- Four RELs successfully decompressed and pre-linked **in the private workspace** (13 sections; ADDR32=91863, ADDR16_LO=30772, ADDR16_HA=27246, REL24=48575; chained base addresses all match).
+- Standalone browser-oriented C++ sparse RAM backend compiles into ~14 KiB of WebAssembly. It passed its automated Node tests plus **11 checks in headless Brave**, without JavaScript errors.
+- The actual game does not boot yet. Native fibers, flat guest memory, GX renderer and platform services are not WebAssembly-compatible as-is.
+
+## Next engineering steps
+1. Reconcile original-executable hashes versus WiiCompiled's current game profile before translating guest functions for real gameplay.
+2. Generate C++ functions into **private/ignored output**, compare their memory semantics and reference paths to the existing runtime.
+3. Adapt the upstream checked `MemoryInline` path to WASM. Preserve MMIO/GX FIFO, executable-write detection and the Wii's sparse mappings.
+4. Bring up a scheduler backend for Emscripten and a WebGPU rendering path. Only then attempt boot and level loading.
