@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NSMB/Wii — Browser GPU Feasibility</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Segoe UI,sans-serif}
+*{box-sizing:border-box}body{min-height:100vh;margin:0;padding:24px;display:grid;place-items:center;background:#0c1720;color:#e7f2f8}
+main{width:min(880px,100%);border:1px solid #2c4558;border-radius:18px;padding:28px;background:#172b37}
+h1{font-size:clamp(23px,4vw,34px);margin:8px 0 16px}p{color:#bdd1db;line-height:1.55}
+.eyebrow{font-size:12px;letter-spacing:.14em;color:#87c3de;font-weight:700}
+#result{margin:12px 0;padding:12px 16px;border-radius:8px;background:#243d4d}
+#result[data-result="passed"]{background:#204e3d}#result[data-result="failed"]{background:#5c2e32}
+.stage{position:relative;aspect-ratio:16/9;border:1px solid #58738a;border-radius:9px;overflow:hidden;background:#0c1921}
+.stage canvas{position:absolute;width:100%;height:100%;inset:0;display:block}
+.stage canvas[hidden]{display:none}
+pre{overflow-wrap:anywhere;white-space:pre-wrap;font-size:13px;padding:14px;background:#0d1e29;border-radius:7px}
+a{color:#aaddf2}button{font:inherit;background:#255f78;border:1px solid #81b7ce;color:#fff;padding:9px 14px;border-radius:7px;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:3px solid #ffdb79;outline-offset:3px}
+small{color:#b2c8d1}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">NSMB/WEB · GRAPHICS RESEARCH · W02</div>
+<h1>Browser GPU feasibility lab</h1>
+<p>This standalone experiment tests a genuine browser WebGPU render pass and GPU readback when available. Otherwise it verifies a Canvas 2D drawing path. No game files, Nintendo assets or emulated gameplay are loaded.</p>
+<div id="result" role="status" aria-live="polite" data-result="pending">Initializing graphics…</div>
+<div class="stage" id="stage" aria-label="Procedural test image">
+<canvas id="gpu-canvas" hidden aria-hidden="true"></canvas>
+<canvas id="canvas2d" aria-label="2D graphics fallback" role="img"></canvas>
+</div>
+<p><button type="button" id="rerun">Repeat rendering check</button></p>
+<pre id="diagnostics" aria-label="Renderer diagnostics">Pending tests…</pre>
+<p><small>Technical proof of the browser presentation surface only. Aurora GX, translated Wii functions and real game graphics remain unconnected.</small></p>
+<a href="/">← Project homepage</a>
+</main><script type="module" src="./gpu-lab.mjs"></script></body></html>
