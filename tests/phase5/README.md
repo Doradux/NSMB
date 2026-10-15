@@ -195,3 +195,24 @@ state-free function calls, FPR/paired-single, device HLE, native
 dispatch registry, Wii guest fibers or boot. No owner private file,
 original hash or extracted game data was read, generated or published.
 W01 original DOL identity still mismatched and is BLOCKED.
+
+## Additional guest-time regression: host-only reset
+
+Luigi independently found a separate regression on Toad exact
+daf2b69: publishing 200 ticks to the real Wasm guest RAM then calling
+clock.reset(0n) (which resets only JS bookkeeping, not guest contexts/
+memory) permits publish(100n) and silently regresses the same visible
+time word to 100. Peach confirmed with its own independent real-Wasm
+regression test added to tick-ownership.test.mjs.
+
+Exact clean daf2b69: 4 reviewer-owned tick tests now 2 PASS, 2 FAIL:
+ESM-duplicate-module WeakSet bypass and host reset-without-guest-reset
+rewind. The global current-authority test and low32 legitimate wrap
+still pass. Luigi formal W07 review for this second failure:
+C:\NSMBcowork\reviews\2026-10-15T08-44-35-629Z_Luigi_to_W07_5651a9ad.md
+
+This is **not** a high-fidelity Wii OS clock assertion, just
+guest-visible monotonicity in one synthetic checked W04 RAM clock
+epoch with no 2^32 low-word rollover. Host reset must be either
+fail-closed until verified guest module epoch reset, or part of an
+explicit atomic guest reset. Toad and Mario informed.

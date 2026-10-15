@@ -82,3 +82,25 @@ test('RED: duplicate ESM loads cannot each claim one guest-Wasm clock owner',asy
    'two independently loaded JS copies MUST NOT regress one shared C++ Wasm tick word');
  assert.equal(rejected,true,'stale second clock authority must report failure');
 });
+
+test('RED: host clock.reset cannot silently rewind a live guest timebase without full Wasm reset',async()=>{
+ const {mod:m,createSyntheticTickClock:create}=await fresh();
+ const clock=create(m,{address:0x80008000});
+ assert.equal(clock.publish(200n).written,true);
+ assert.equal(m._nsmbw_mem_read32(0xC0008000)>>>0,200);
+ // Resetting *only* one JS adapter is not equivalent to resetting W03 guest
+ // contexts and W04 memory. Some guests may still hold live read positions.
+ let rejected=false;
+ try{clock.reset(0n)}catch{rejected=true}
+ if(rejected){
+   assert.equal(clock.ticks,200n,'failed reset must retain original monotonic counter');
+   assert.equal(m._nsmbw_mem_read32(0x80008000)>>>0,200);
+   return;
+ }
+ let rejectedPublish=false;
+ try{const r=clock.publish(100n);rejectedPublish=r.written===false}
+ catch{rejectedPublish=true}
+ assert.equal(m._nsmbw_mem_read32(0x80008000)>>>0,200,
+  'guest tick MUST NOT regress unless a global Wasm reset was explicitly verified');
+ assert.equal(rejectedPublish,true,'stale post-reset publication must be rejected if guest epoch did not reset');
+});
