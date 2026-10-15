@@ -115,13 +115,15 @@ test('128 repeated frames/reset cycles bound clock state and never share RAM acr
  const other=await fresh();assert.equal(other._nsmbw_mem_read32(0x80008000),0);
 });
 test('synthetic clock host cannot be reentered from hostile WASM provider',()=>{
- let clock;
+ let clock, lastStatus=0;
  const provider={
-  _nsmbw_services_tick_store32() {
+  _nsmbw_services_tick_store32(address,value) {
+    if(address===0xFFFFFFFC && value===0x5449434B)return 1;
     assert.throws(()=>clock.advance(1n),/REENTRANT_TICK_SERVICE/);
+    lastStatus=3;
     return 0;
   },
-  _nsmbw_services_tick_status(){return 3;}
+  _nsmbw_services_tick_status(){return lastStatus;}
  };
  clock=createSyntheticTickClock(provider);
  const failed=clock.advance(1n);
@@ -186,4 +188,67 @@ test('phase6: guest clock ownership descriptor cannot be erased or replaced',asy
  assert.equal(c.publish(200n).written,true);
  assert.equal(Reflect.defineProperty(m,key,{value:false}),false);
  assert.equal(m._nsmbw_mem_read32(0xC0008000),200);
+});
+
+test('phase7 RED: two structural forwarding facades cannot regress one real guest Wasm',async()=>{
+ const m=await fresh();
+ const names=['_nsmbw_services_tick_store32','_nsmbw_services_tick_status',
+   '_nsmbw_mem_pages','_nsmbw_loop_ready','_nsmbw_loop_paused',
+   '_nsmbw_loop_done','_nsmbw_loop_faulted','_nsmbw_loop_cancelled',
+   '_nsmbw_loop_trace_length'];
+ const facade=()=>Object.fromEntries(names.map(n=>[n,m[n].bind(m)]));
+ const a=createSyntheticTickClock(facade(),{address:0x80008000});
+ const bFacade=facade();
+ let rejected=false;
+ try {
+  const b=createSyntheticTickClock(bFacade,{address:0xC0008000});
+  assert.equal(a.publish(200n).written,true);
+  try{const r=b.publish(100n);rejected=r.written===false}catch{rejected=true}
+ }catch(err) {
+  assert.match(String(err.message),/TICK|CLOCK|OWNER|MISSING|REGISTRATION/);
+  rejected=true;
+  assert.equal(a.publish(200n).written,true);
+ }
+ assert.equal(rejected,true);
+ assert.equal(m._nsmbw_mem_read32(0x80008000)>>>0,200);
+});
+test('phase7 RED: facade forwarding native claim must be rejected after first owner',async()=>{
+ const m=await fresh();
+ const names=['_nsmbw_services_tick_store32','_nsmbw_services_tick_status',
+ '_nsmbw_services_tick_claim','_nsmbw_mem_pages','_nsmbw_loop_ready',
+ '_nsmbw_loop_paused','_nsmbw_loop_done','_nsmbw_loop_faulted',
+ '_nsmbw_loop_cancelled','_nsmbw_loop_trace_length'];
+ const wrapper=()=>Object.fromEntries(names.filter(n=>typeof m[n]==='function')
+   .map(n=>[n,m[n].bind(m)]));
+ const a=createSyntheticTickClock(wrapper());
+ assert.equal(a.publish(200n).written,true);
+ assert.throws(()=>createSyntheticTickClock(wrapper(),{address:0xC0008000}),
+ /TICK_CLOCK_ALREADY_OWNED|MISSING_CHECKED_TICK_SERVICE/);
+ assert.equal(m._nsmbw_mem_read32(0xC0008000),200);
+});
+
+test('phase7: a facade spoofing only the optional claim export cannot bypass native ownership',async()=>{
+ const m=await fresh();
+ const first=createSyntheticTickClock(m,{address:0x80008000});
+ assert.equal(first.publish(200n).written,true);
+ const names=['_nsmbw_services_tick_store32','_nsmbw_services_tick_status',
+   '_nsmbw_mem_pages','_nsmbw_loop_ready','_nsmbw_loop_paused',
+   '_nsmbw_loop_done','_nsmbw_loop_faulted','_nsmbw_loop_cancelled',
+   '_nsmbw_loop_trace_length'];
+ const facade=Object.fromEntries(names.map(n=>[n,m[n].bind(m)]));
+ facade._nsmbw_services_tick_claim=()=>1; // not an actual native claim
+ assert.throws(()=>createSyntheticTickClock(facade,{address:0xC0008000}),
+  /TICK_CLOCK_ALREADY_OWNED/);
+ assert.equal(m._nsmbw_mem_read32(0x80008000),200);
+});
+test('phase7: guest reset does not relinquish the native lifetime claim',async()=>{
+ const m=await fresh(),c=createSyntheticTickClock(m);
+ assert.equal(c.publish(200n).written,true);
+ m._nsmbw_loop_reset();
+ c.reset(0n);
+ assert.equal(c.publish(100n).written,true);
+ assert.equal(m._nsmbw_services_tick_claim(),0);
+ assert.equal(m._nsmbw_services_tick_store32(0xFFFFFFFC,0x5449434B),0);
+ assert.equal(m._nsmbw_services_tick_status(),8);
+ assert.equal(m._nsmbw_mem_read32(0x80008000),100);
 });

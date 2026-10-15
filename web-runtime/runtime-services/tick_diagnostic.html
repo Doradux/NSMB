@@ -23,6 +23,24 @@ try{
    preventedUrlClone=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
  }
  ensure(preventedUrlClone,'DUPLICATE_ESM_CLOCK_OWNER');
+ // A second real Wasm proves that each module has its OWN canonical native
+ // clock claim. Structural wrappers of the SAME module must share the claim.
+ const shared=await create({locateFile:()=>'/dist/joined_tick.wasm'});
+ shared._nsmbw_loop_reset();
+ const names=['_nsmbw_services_tick_store32','_nsmbw_services_tick_status',
+  '_nsmbw_mem_pages','_nsmbw_loop_ready','_nsmbw_loop_paused',
+  '_nsmbw_loop_done','_nsmbw_loop_faulted','_nsmbw_loop_cancelled',
+  '_nsmbw_loop_trace_length'];
+ const facade=()=>Object.fromEntries(names.map(n=>[n,shared[n].bind(shared)]));
+ const facadeOwner=createSyntheticTickClock(facade(),{address:0x80008000});
+ ensure(facadeOwner.publish(200n).written,'FIRST_FACADE_CLOCK_FAILED');
+ let refusedFacade=false;
+ try{cloned(facade(),{address:0xC0008000})}catch(e){
+  refusedFacade=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
+ }
+ ensure(refusedFacade,'TWO_FACADES_OWNED_ONE_WASM');
+ ensure(shared._nsmbw_mem_read32(0xC0008000)===200,'FACADE_CHANGED_GUEST_CLOCK');
+ ensure(shared._nsmbw_services_tick_claim()===0,'GUEST_RESET_CLAIM_NOT_PERSISTENT');
  ensure(clock.advance(1n).low32===0xFFFFFFFF,'PRE_WRAP');
  let status=clock.advance(1n);
  ensure(status.written&&status.low32===0&&status.rolledOver,'32BIT_WRAP');

@@ -26,8 +26,21 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
     Object.defineProperty(module,CLOCK_OWNER,{value:true,enumerable:false,
       writable:false,configurable:false});
   } catch { throw new Error('TICK_CLOCK_REGISTRATION_FAILED'); }
-  // Ownership is permanent for this Wasm object; a new epoch requires
-  // an audited module-wide reset, not a competing JS clock.
+  // JS own-property guard is an early check, NOT the authority: wrappers can
+  // be distinct JS objects around one real guest C++ instance. The native
+  // claim is the shared final gate even across facades and ESM URL variants.
+  // A failed claim never performs a guest tick write or device access.
+  // ALWAYS use the *same* native registration channel, not an optional JS
+  // claim export: a facade can forge that optional function independently.
+  // The versioned native CONTROL request shares a C++ lifetime claim across
+  // all legitimate forwarding facades and raw module instances; no guest RAM
+  // or Wii MMIO is touched. This is a trusted-host interface, not a sandbox
+  // against intentionally malicious JS that forges the store32 call itself.
+  const acquired=store(0xFFFFFFFC,0x5449434B)===1;
+  const result=status();
+  if(!acquired||result!==0)throw new Error('TICK_CLOCK_ALREADY_OWNED');
+  // Ownership persists natively for this Wasm instance's lifetime; reset of
+  // guest RAM/contexts permits an epoch rewind by THIS owner but not re-claim.
   let last=initial;
   let busy=false;
   function publish(candidate) {
