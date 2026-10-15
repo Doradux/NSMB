@@ -1,0 +1,81 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Synthetic PPC ABI same-Wasm browser checkpoint</title></head>
+<body><h1>W03 + W07 + W08 one-Wasm synthetic guest ABI</h1><p>No original Wii function, assets or game boot.</p>
+<pre id="status">Running real Emscripten WebAssembly…</pre>
+<script type="module">
+import factory from './dist/frame_loop.mjs';
+import {createFrameHost} from './host.mjs';
+import {writeSyntheticGamepadSnapshot} from '../runtime-services/host_input.mjs';
+const status=document.querySelector('#status');
+const assert=(condition,message)=>{if(!condition)throw Error(message);};
+try{
+  const wasm=await factory({locateFile:()=>new URL('./dist/frame_loop.wasm',import.meta.url).href});
+  const call=(name,...args)=>{
+    const fn=wasm['_nsmbw_'+name];
+    assert(typeof fn==='function','missing linked C++ export '+name);
+    return fn(...args);
+  };
+  const input=0x80004000,entry=0x80010000,exit=0x8001FFF0;
+  const pad={connected:true,mapping:'standard',index:0,axes:[0,0],
+    buttons:Array.from({length:17},()=>({pressed:false,value:0}))};
+  pad.buttons[0].pressed=true;pad.buttons[9].pressed=true;
+  call('loop_reset');
+  const firstPacket=writeSyntheticGamepadSnapshot(wasm,[pad],input,7);
+  assert(firstPacket.written&&firstPacket.status===0,'checked input write');
+  const spawn=(id,salt)=>{
+    assert(call('loop_cpu_spawn',id,entry,0x80004010+id*0x1000,input,
+      0x80008000+id*0x1000,salt)===1,'new CPU context '+id);
+  };
+  for(let id=1;id<=3;id++)spawn(id,id-1);
+  let host,frames=0;
+  host=createFrameHost(wasm,{ids:[1,2,3],budget:2,maxFrames:64,
+    onFrame:info=>{
+      frames++;
+      assert(info.executed<=2,'bounded CPU frame budget');
+      if(info.frames===1)assert(host.suspend(2)===1,'pause CPU context');
+      if(info.frames===5)assert(host.resume(2)===1,'resume CPU context');
+    }});
+  const done=await host.start();
+  assert(done.reason==='completed'&&done.done===3&&done.faulted===0,
+    'three independent synthetic CPU context returns');
+  assert(done.frames===17,'three 11-instruction programs across capped frames');
+  for(let id=1;id<=3;id++){
+    assert(call('loop_cpu_steps',id)===11,'callee and host LR return count');
+    assert((call('loop_pc',id)>>>0)===exit,'synthetic return sentinel PC');
+    assert((call('loop_cpu_gpr',id,1)>>>0)===0x80004010+id*0x1000,'stack restored');
+    assert(call('mem_read32',0x80008000+id*0x1000)===11+id,'PPC call output result');
+  }
+  host.dispose();
+  const disconnected=writeSyntheticGamepadSnapshot(wasm,[{...pad,connected:false}],input,8);
+  assert(disconnected.written&&disconnected.disconnected,'controller disconnect packet');
+  assert(call('mem_read32',input)===0x08000000,'neutral button/axis packet in same Wasm RAM');
+  spawn(4,0);
+  const after=createFrameHost(wasm,{ids:[4],budget:1,maxFrames:16});
+  const disconnectedDone=await after.start();
+  assert(disconnectedDone.reason==='completed'&&disconnectedDone.frames===11,'one CPU completed after disconnected input');
+  assert(call('mem_read32',0x8000C000)===8,'released buttons consumed by C++ guest');
+  after.dispose();
+  // 128 actual browser animation turns, each executing 11 guest instructions.
+  let stressFrames=0;
+  for(let i=0;i<128;i++){
+    call('loop_reset');
+    const packet=writeSyntheticGamepadSnapshot(wasm,[pad],input,i);
+    assert(packet.written,'stress input packet write');
+    assert(call('loop_cpu_spawn',1,entry,0x80005010,input,0x80008000,1)===1,'stress spawn');
+    const frameHost=createFrameHost(wasm,{ids:[1],budget:11,maxFrames:2,
+      onFrame:()=>{stressFrames++;}});
+    const result=await frameHost.start();
+    assert(result.reason==='completed'&&result.frames===1&&result.done===1,'stress guest complete');
+    assert(call('mem_read32',0x80008000)===i+6,'same-Wasm packet and CPU output');
+    assert((call('loop_cpu_gpr',1,1)>>>0)===0x80005010,'no stack leak');
+    frameHost.dispose();
+  }
+  call('loop_reset');
+  assert(call('mem_pages')===0,'no guest RAM pages after final reset');
+  const data={status:'pass',actualWasm:true,contexts:3,callSteps:11,
+    firstFrames:frames,disconnectFrames:11,stressCycles:128,stressFrames,
+    controllerNeutralized:true,finalPages:call('mem_pages'),sameWasm:true,
+    limitation:'Synthetic fixed PPC call ABI, not original Wii code or real controller hardware'};
+  window.__nsmbPhase4Cpu=data;status.textContent=JSON.stringify(data,null,2);
+}catch(error){const data={status:'fail',error:String(error?.stack||error)};
+ window.__nsmbPhase4Cpu=data;status.textContent=JSON.stringify(data,null,2);}
+</script></body></html>

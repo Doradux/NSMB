@@ -2,6 +2,7 @@
 // No Nintendo code or actual stackful Wii fibers. The host owns frame boundaries.
 #include <array>
 #include <cstdint>
+#include "guest_cpu.hpp"
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #define EXPORT EMSCRIPTEN_KEEPALIVE
@@ -26,6 +27,8 @@ constexpr uint32_t READY=1, PAUSED=2, DONE=3, FAULT=4, CANCELLED=5;
 struct Context {
   uint32_t id=0, state=0, pc=0, limit=0, source=0, destination=0, addend=0;
   uint32_t regA=0, yields=0, error=0, retrySafe=1;
+  uint32_t kind=0; // 0 previous W03 synthetic interop, 1 synthetic PPC call ABI
+  SyntheticCpu::State cpu{};
 };
 std::array<Context,CAPACITY> tasks{};
 std::array<uint32_t,TRACE_SIZE> trace{};
@@ -79,6 +82,22 @@ int EXPORT nsmbw_loop_spawn(uint32_t id,uint32_t src,uint32_t dst,uint32_t delta
   }
   lastError=2;return 0;
 }
+// Additive W03 phase4 spawn: same round-robin scheduler, same W04/W07 RAM.
+int EXPORT nsmbw_loop_cpu_spawn(uint32_t id,uint32_t entry,uint32_t stackTop,
+                               uint32_t inputGuest,uint32_t outputGuest,uint32_t salt) {
+  lastError=0;
+  if(!id||id>0xFFFFu||find(id)){lastError=1;return 0;}
+  SyntheticCpu::State s{};
+  if(!SyntheticCpu::initialize(s,entry,stackTop,inputGuest,outputGuest,salt)){
+    lastError=1;return 0;
+  }
+  for(auto& t:tasks)if(!t.id){
+    t=Context{};
+    t.id=id;t.state=READY;t.limit=32;t.retrySafe=1;t.kind=1;t.cpu=s;
+    return 1;
+  }
+  lastError=2;return 0;
+}
 int EXPORT nsmbw_loop_suspend(uint32_t id) {
   lastError=0;auto* t=find(id);
   if(!t||t->state!=READY){lastError=3;return 0;}
@@ -122,6 +141,22 @@ int EXPORT nsmbw_loop_tick() {
     auto& t=tasks[index];
     if(!t.id||t.state!=READY) continue;
     cursor=(index+1)%CAPACITY;
+    if(t.kind==1){
+      const auto outcome=SyntheticCpu::step(t.cpu);
+      if(!outcome.ok){
+        t.error=outcome.error;
+        t.retrySafe=outcome.retrySafe;
+        t.state=FAULT;
+        appendTrace((t.id<<16u)|0x8000u|t.pc);
+        return static_cast<int>(t.id);
+      }
+      t.regA=t.cpu.gpr[3];
+      ++t.pc; // count synthetic instructions, CPU.pc is actual guest call address
+      if(outcome.done)t.state=DONE;
+      else ++t.yields;
+      appendTrace((t.id<<16u)|t.pc);
+      return static_cast<int>(t.id);
+    }
     if(!nsmbw_interop_step(t.source,t.destination,t.addend)) {
       t.error=nsmbw_interop_status();
       t.retrySafe=retrySafeForFault(t.source,t.destination);
@@ -160,7 +195,15 @@ int EXPORT nsmbw_loop_frame(uint32_t budget) {
   return static_cast<int>(budget);
 }
 uint32_t EXPORT nsmbw_loop_state(uint32_t id) {auto*t=find(id);return t?t->state:0;}
-uint32_t EXPORT nsmbw_loop_pc(uint32_t id) {auto*t=find(id);return t?t->pc:0;}
+uint32_t EXPORT nsmbw_loop_pc(uint32_t id) {auto*t=find(id);return t?(t->kind==1?t->cpu.pc:t->pc):0;}
+uint32_t EXPORT nsmbw_loop_cpu_steps(uint32_t id) {auto*t=find(id);return t&&t->kind==1?t->cpu.steps:0;}
+uint32_t EXPORT nsmbw_loop_cpu_gpr(uint32_t id,uint32_t index) {
+  auto*t=find(id);return t&&t->kind==1&&index<32?t->cpu.gpr[index]:0;
+}
+uint32_t EXPORT nsmbw_loop_cpu_lr(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.lr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_ctr(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.ctr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_cr(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.cr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_xer(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.xer:0;}
 uint32_t EXPORT nsmbw_loop_reg_a(uint32_t id) {auto*t=find(id);return t?t->regA:0;}
 uint32_t EXPORT nsmbw_loop_guest_error(uint32_t id) {auto*t=find(id);return t?t->error:0;}
 uint32_t EXPORT nsmbw_loop_retry_safe(uint32_t id) {auto*t=find(id);return t?t->retrySafe:0;}

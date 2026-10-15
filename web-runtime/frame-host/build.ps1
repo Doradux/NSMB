@@ -18,6 +18,9 @@ $source = @(
   (Join-Path $runtime 'src\guest_memory.cpp'),
   (Join-Path $runtime 'interop\synthetic_guest.cpp'),
   (Join-Path $runtime 'interop\device_policy.cpp'),
+  # Input service shares the SAME C++ W04 RAM instance; no duplicate Wasm.
+  (Join-Path $runtime 'runtime-services\input_snapshot.cpp'),
+  (Join-Path $PSScriptRoot 'guest_cpu.cpp'),
   (Join-Path $PSScriptRoot 'frame_loop.cpp')
 )
 $opts = @('-std=c++17','-O2','-Wall','-Wextra','-sWASM=1','-sMODULARIZE=1',
