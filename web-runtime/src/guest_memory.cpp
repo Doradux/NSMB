@@ -147,6 +147,47 @@ int write(uint32_t address, uint32_t width, uint32_t value) {
 } // namespace
 
 extern "C" {
+#ifdef NSMB_PHASE6_TRANSLATED_STORE_FIXTURE
+// TEST-ONLY exact two-word ordinary RAM transaction for actual generated
+// public PPC STW fixture. Preallocate ALL missing pages before touching either
+// guest byte or page pointer. No MMIO, DMA, HLE, native guest pointers, or
+// arbitrary write-set length. The regular runtime does NOT export this API.
+int NSMBW_EXPORT nsmbw_mem_atomic_pair_write32(
+    uint32_t addressA,uint32_t valueA,uint32_t addressB,uint32_t valueB) {
+    if (!validate(addressA,4) || !validate(addressB,4)) return 0;
+    if ((addressA&3u) || (addressB&3u)) {lastError=4;return 0;}
+    uint32_t physicalA=0,physicalB=0;
+    if(!resolve(addressA,physicalA) || !resolve(addressB,physicalB)) {
+        lastError=1;return 0;
+    }
+    auto* slotA=&pageFor(physicalA);
+    auto* slotB=&pageFor(physicalB);
+    const uint32_t needed=(!*slotA ? 1u:0u)+
+                          (slotB!=slotA && !*slotB ? 1u:0u);
+    if(needed>pageBudget-allocatedPages){lastError=3;return 0;}
+    std::unique_ptr<Page> stagedA,stagedB;
+    if(!*slotA){
+      stagedA.reset(new(std::nothrow) Page{});
+      if(!stagedA){lastError=3;return 0;}
+    }
+    if(slotB!=slotA && !*slotB){
+      stagedB.reset(new(std::nothrow) Page{});
+      if(!stagedB){lastError=3;return 0;}
+    }
+    // Staging succeeded; after this point no fallible operation remains.
+    if(stagedA){slotA->swap(stagedA);++allocatedPages;}
+    if(stagedB){slotB->swap(stagedB);++allocatedPages;}
+    for(uint32_t i=0;i<4u;++i){
+      (**slotA)[(physicalA+i)&(kPageSize-1u)]=
+        static_cast<uint8_t>(valueA>>((3u-i)*8u));
+    }
+    for(uint32_t i=0;i<4u;++i){
+      (**slotB)[(physicalB+i)&(kPageSize-1u)]=
+        static_cast<uint8_t>(valueB>>((3u-i)*8u));
+    }
+    lastError=0;return 1;
+}
+#endif
 void NSMBW_EXPORT nsmbw_mem_reset() {
     for (auto& page : mem1Pages) page.reset();
     for (auto& page : mem2Pages) page.reset();

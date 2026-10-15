@@ -69,7 +69,7 @@ test('budget ZERO: generated C++ first stw failure never creates ghost pages or 
  assert.equal(c('mem_read32',0x80011000),0);
  assert.equal(c('loop_retry_quota',1),0,'write path abort conservatively after quota');
 });
-test('late quota fault after FIRST successful committed guest store rolls it back exactly',async()=>{
+test('atomic quota preflight protects preexisting first word when second page cannot allocate',async()=>{
  const {c}=await fresh();
  assert.equal(c('mem_write32',0x80010000,0xDEADBEEF),1);
  assert.equal(c('mem_pages'),1);
@@ -94,6 +94,20 @@ test('late quota fault after FIRST successful committed guest store rolls it bac
  assert.equal(c('loop_frame',1),1);
  assert.equal(c('mem_read32',0x80010000),5);
  assert.equal(c('mem_read32',0x80011000),5);
+});
+test('two never-allocated guest RAM pages remain UNALLOCATED after atomic quota error',async()=>{
+ const {c}=await fresh();
+ assert.equal(c('mem_pages'),0);
+ assert.equal(c('mem_set_page_budget',1),1);
+ assert.equal(spawn(c,1,0x80010000,0x80011000,0xAABBCCDD),1);
+ assert.equal(c('loop_frame',1),1);
+ assert.equal(c('loop_state',1),4);
+ assert.equal(c('loop_guest_error',1),3);
+ assert.equal(c('loop_pc',1)>>>0,ENTRY);
+ assert.equal(c('loop_cpu_gpr',1,3)>>>0,0xAABBCCDD);
+ assert.equal(c('mem_read32',0x80010000),0);
+ assert.equal(c('mem_read32',0x80011000),0);
+ assert.equal(c('mem_pages'),0,'failure must NOT allocate an otherwise absent RAM page');
 });
 test('three real translated guest contexts, aliases, bounded host frames, strict independent words',async()=>{
  const {m,c}=await fresh();
