@@ -51,3 +51,37 @@ provenance and no playable Wii game proof.
 Owner Peach alone edits tests/phase5 in its independent branch. Request
 Luigi/Toad critical peer review of these test oracles; Mario-only main
 merges. No other agents' worktrees modified.
+
+
+## Secondary Phase4 public-surface audit (published main dabf76a)
+
+Reviewer-added phase4-public-surface.test.mjs independently checks the
+ACTUAL published Node server.js plus compiled normal WebAssembly, not
+test-only JavaScript mock memory.
+
+Command from this branch:
+    $env:NSMB_PHASE5_PUBLIC_ROOT='C:\NSMBcowork\worktrees\Peach-Phase5-QA'
+    node --test tests/phase5/phase4-public-surface.test.mjs
+
+**2/2 PASS, zero skipped**. Normal Emscripten module has no
+_nsmbw_test_policy_install / rejection / calls / last-region callback
+export, but has real CPU+shared guest input exports. 128 repeat
+loop_reset/input-write cycles preserve exactly one backing page while
+running and zero after reset; no stale guest READY/DONE/trace slots.
+Separate TEST fixture module exists on disk but must not be publicly
+served.
+
+Actual production server launched on localhost in a temporary child
+process; GET/HEAD of private/test/mock/source/fixture/dol/rvz paths,
+encoded traversal and case changes are denied 404, malformed percent
+encoding is 400. Allowlisted real compiled normal .wasm gets correct
+MIME and Wasm magic; query params cannot change its bytes. Child is
+terminated and process status checked. Published site regression
+tests/browser/harness + regression: 14/14 PASS, zero skips incl actual
+Chrome desktop/mobile, no JavaScript console errors. Phase4 runtime
+compiled host tests: 39/39 PASS, zero skips including Chrome and
+typed test-only callback isolation.
+
+This proves ONLY the checked public synthetic surface. It does not
+prove authentic Wii content confidentiality in any external service,
+nor true gameplay, HLE or the owner DOL hash.
