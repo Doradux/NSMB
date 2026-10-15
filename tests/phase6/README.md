@@ -150,3 +150,31 @@ replay device side effects, promote MMIO to RAM, or report gameplay.
 Formal W03 Peach 3f81e8d CHANGES REQUESTED:
 C:\NSMBcowork\reviews\2026-10-15T10-11-56-792Z_Peach_to_W03_a86e7379.md
 Luigi and Mario notified, new clean SHA required.
+
+
+## Additional INDEPENDENT real Chrome 320px 128-frame STW rollback
+
+tests/phase6/translated-store-diagnostic.html and
+tests/phase6/translated-store-browser.test.mjs run a 3-resource exact
+HTTP allowlist (HTML, actual generated C++ Wasm module JS and Wasm
+binary) with no original game data exposed. Headless REAL Chromium
+CDP at 320px executes **128 distinct requestAnimationFrame callbacks**:
+32 correct cached/uncached 32-bit STW stores, 32 late quota faults
+with already allocated first page, 32 MMIO-denied second destinations,
+and 32 late quota faults with first NEW sparse RAM page.
+
+Run on marcos:
+    $env:NSMB_PHASE6_STW_ROOT='C:\NSMBcowork\worktrees\Peach-Phase6-Luigi-Audit'
+    node --test tests/phase6/translated-store-browser.test.mjs
+
+Exact clean Luigi3f81e8d: actual Chrome reaches all128 RAF frames,
+32 valid stores, 96 typed fault operations and observes
+ghostFailures=32, expected0 (test FAILS). No false console 404
+favicon error (explicit data URI icon), 320px viewport and exact
+resource route deny remain required. Memory/read/GPR/PC checks are
+performed inside every actual RAF. This is a deterministic severe
+sparse-page quota leak under partial rollback, NOT a proven leak in
+authentic Nintendo code or arbitrary imported native operations.
+Do not approve until corrected SHA passes 5/5 independent Node and
+1/1 independent true Chrome with ghostFailures0, all authored tests,
+and independent peer review.

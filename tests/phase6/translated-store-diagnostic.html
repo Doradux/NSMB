@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Public synthetic STW rollback regression</title>
+<style>body{font:16px system-ui;margin:1rem;max-width:40rem}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>
+<h1>Copyright-free synthetic PPC → C++ → Wasm</h1>
+<p>Engineering-only verification. No Nintendo game, assets, or playable build.</p>
+<pre id="status">Testing actual Emscripten guest memory transactions</pre>
+<script type="module">
+import factory from '/frame_loop_translated_store_fixture.mjs';
+const out=document.getElementById('status');
+const check=(yes,label)=>{if(!yes)throw Error(label)};
+const next=()=>new Promise(ok=>requestAnimationFrame(ok));
+async function run(){
+ const m=await factory({locateFile:()=>'/frame_loop_translated_store_fixture.wasm'});
+ const c=(name,...args)=>{
+  const fn=m['_nsmbw_'+name];check(typeof fn==='function','Missing real compiled export '+name);
+  return fn(...args);
+ };
+ let ghostFailures=0,executed=0,committed=0,faulted=0;
+ for(let frame=0;frame<128;frame++){
+  await next();executed++;
+  c('loop_reset');
+  check(c('mem_pages')===0,'Leaked guest RAM across reset');
+  const kind=frame%4,first=0x80010000,second=kind===0?0xC0010000:kind===2?0xCC008000:0x80011000;
+  const payload=(0x0A0B0C00+frame)>>>0;
+  if(kind===1||kind===2){
+   check(c('mem_write32',first,0x12345678)===1,'Seed existing guest RAM word');
+   check(c('mem_set_page_budget',1)===1,'Set one-page quota');
+  }
+  if(kind===3)check(c('mem_set_page_budget',1)===1,'Set new-page quota');
+  check(c('loop_translated_store_spawn',1,0x80005010,first,second,payload,0x81002000,0x81003000)===1,'Real translator guest spawn');
+  check(c('loop_frame',1)===1,'Compiled C++ source guest did not dispatch');
+  if(kind===0){
+   check(c('loop_state',1)===3,'Legal translated STW did not complete');
+   check((c('mem_read32',first)>>>0)===payload,'Cached legal word');
+   check((c('mem_read32',0xC0010000)>>>0)===payload,'Uncached legal word');
+   check((c('loop_cpu_gpr',1,3)>>>0)===((payload+1)>>>0),'Generated inline leaf GPR');
+   committed++;
+  } else {
+   check(c('loop_state',1)===4,'Failed translated STW must fault');
+   check((c('loop_pc',1)>>>0)===0x80001000,'Fault PC not atomic');
+   check((c('loop_cpu_gpr',1,3)>>>0)===payload,'Fault GPR changed');
+   check(c('interop_device_invoked')===0,'MMIO callback leaked');
+   check(c('mem_read32',first)===(kind===3?0:0x12345678),'RAM word after rollback');
+   check(c('loop_guest_error',1)===(kind===2?7:3),'Typed fault status');
+   if(kind===3 && c('mem_pages')!==0)ghostFailures++;
+   faulted++;
+  }
+  check(c('loop_reap',1)===1,'Task not reclaimable');
+ }
+ c('loop_reset');
+ check(c('mem_pages')===0,'Guest memory remains after 128 resets');
+ window.__phase6={status:'done',backend:'actual C# Translator.Cli synthetic STW C++ Emscripten Wasm',
+  frames:executed,committed,faulted,ghostFailures,authenticGame:false};
+ out.textContent=JSON.stringify(window.__phase6,null,2);
+}
+run().catch(e=>{
+ window.__phase6={status:'error',message:String(e?.stack||e)};
+ out.textContent=window.__phase6.message;
+});
+</script>
