@@ -54,6 +54,18 @@ try{
   assert(disconnectedDone.reason==='completed'&&disconnectedDone.frames===11,'one CPU completed after disconnected input');
   assert(call('mem_read32',0x8000C000)===8,'released buttons consumed by C++ guest');
   after.dispose();
+  // Adversarial real-Chrome check: cached/uncached guest aliases must not
+  // permit stack or output ownership collisions. No guest RAM mutation on
+  // rejected spawn, even after earlier context completion without reap.
+  const packetBefore=call('mem_read32',input)>>>0;
+  assert(call('loop_cpu_spawn',99,entry,0x80004010,0xC0004000,0x8000D000,0)===0,
+    'alias input overlapped by new stack must be rejected');
+  assert(call('loop_cpu_spawn',99,entry,0xC0005010,input,0x8000D000,0)===0,
+    'other guest CPU context stack physical alias must be rejected');
+  assert(call('loop_cpu_spawn',99,entry,0x8000D010,input,0xC0009000,0)===0,
+    'other guest CPU output word alias must be rejected');
+  assert((call('mem_read32',input)>>>0)===packetBefore,
+    'rejected spawn must not overwrite disconnected input packet');
   // 128 actual browser animation turns, each executing 11 guest instructions.
   let stressFrames=0;
   for(let i=0;i<128;i++){

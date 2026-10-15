@@ -51,7 +51,7 @@ bool initialize(State& s,uint32_t pc,uint32_t top,uint32_t input,
                 uint32_t result,uint32_t salt) {
   if(pc!=Entry || !ordinaryStack(top) || (input&3u) || (result&3u))return false;
   s=State{};
-  s.pc=Entry;s.lr=Exit;s.ctr=0;s.cr=0;s.xer=0;
+  s.pc=Entry;s.lr=Exit;s.ctr=0;s.cr=0;s.xer=0;s.stackTop=top;
   s.gpr[1]=top;s.gpr[2]=InitialSda;s.gpr[3]=0;
   s.gpr[4]=input;s.gpr[5]=salt;s.gpr[6]=result;s.gpr[13]=InitialSda;
   return true;

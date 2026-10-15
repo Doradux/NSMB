@@ -12,6 +12,7 @@ struct State {
   std::array<uint32_t,32> gpr{};
   uint32_t pc=0, lr=0, ctr=0, cr=0, xer=0;
   uint32_t steps=0;
+  uint32_t stackTop=0; // host-only ownership metadata; NOT a PPC architectural register
 };
 struct Outcome {
   bool ok=false, done=false;
