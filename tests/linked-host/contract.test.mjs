@@ -12,11 +12,14 @@ const hostPath=resolve(folder,'host.mjs');
 const guardPath=resolve(folder,'asyncify-guard.mjs');
 const asyncPath=resolve(folder,'dist/asyncify_probe.mjs');
 const asyncWasm=resolve(folder,'dist/asyncify_probe.wasm');
-async function fresh() {
-  assert.ok(existsSync(esmPath) && existsSync(wasmPath), 'point NSMB_LINKED_ROOT to clean checked-out linked-Wasm candidate');
-  assert.equal(readFileSync(wasmPath).subarray(0,4).toString('hex'),'0061736d');
-  const createModule=(await import(pathToFileURL(esmPath).href)).default;
-  const module=await createModule({locateFile:()=>wasmPath});
+async function fresh({fixture=false}={}) {
+  const selectedWasm=fixture?resolve(folder,'dist/frame_loop_fixture.wasm'):wasmPath;
+  const selectedEsm=fixture?resolve(folder,'dist/frame_loop_fixture.mjs'):esmPath;
+  assert.ok(existsSync(selectedEsm) && existsSync(selectedWasm),
+    'missing compiled '+(fixture?'isolated typed-policy TEST fixture':'normal linked Wasm')+' under NSMB_LINKED_ROOT');
+  assert.equal(readFileSync(selectedWasm).subarray(0,4).toString('hex'),'0061736d');
+  const createModule=(await import(pathToFileURL(selectedEsm).href)).default;
+  const module=await createModule({locateFile:()=>selectedWasm});
   const c=(name,...args)=>{
     const method=module['_nsmbw_'+name];
     assert.equal(typeof method,'function','Missing actual linked-Wasm export '+name);
@@ -46,12 +49,15 @@ test('one actual Wasm instance links scheduler, checked W07 memory and per-conte
  assert.equal(c('loop_reg_a',2),4);
  assert.equal(c('loop_retry_quota',3),0,'device denial is not retryable');
 });
-test('typed W07 status 5/6 is observable as a fault in the SAME module (red-first contract)',async()=>{
- const {c,module}=await fresh();
+test('typed W07 status 5/6 faults the correct context in a TEST-ONLY linked Wasm fixture',async()=>{
+ const normal=await fresh();
+ assert.equal(typeof normal.module._nsmbw_test_policy_install,'undefined',
+   'normal single-Wasm build MUST NOT ship fake MMIO test callback exports');
+ const {c,module}=await fresh({fixture:true});
  const install=module._nsmbw_test_policy_install;
  const rejection=module._nsmbw_test_policy_rejection;
- assert.equal(typeof install,'function','RED: new joined fixture needs TEST-ONLY typed MMIO policy install export');
- assert.equal(typeof rejection,'function','RED: new joined fixture needs TEST-ONLY callback reject/malformed control export');
+ assert.equal(typeof install,'function','joined TEST-ONLY fixture must expose synthetic MMIO policy installation');
+ assert.equal(typeof rejection,'function','joined TEST-ONLY fixture must expose callback reject/malformed control');
  assert.equal(c('mem_write32',0x80000000,1),1);
  install(3);
  rejection(1); // synthetic handler reports denied operation -> guest error 5
@@ -146,7 +152,7 @@ test('host rejects initial requestFrame throw and stale callback after cancellat
  host.dispose();
 });
 
-test('red-first: onFrame wake-up must prevent premature blocked stop',async()=>{
+test('onFrame wake-up prevents premature blocked stop',async()=>{
  const {module,c}=await fresh();
  c('mem_write32',0x80000000,0);
  c('mem_write32',0x80001000,3);
@@ -174,4 +180,34 @@ test('red-first: onFrame wake-up must prevent premature blocked stop',async()=>{
  assert.equal(result.done,2);
  assert.equal(result.cancelled,1);
  host.dispose();
+});
+
+test('MMIO side effects cannot be replayed while a separate RAM-only quota fault can retry',async()=>{
+ const {c,module}=await fresh({fixture:true});
+ assert.equal(c('mem_set_page_budget',0),1);
+ c('test_policy_install',1);
+ assert.equal(c('loop_spawn',31,0xCC000000,0x80001000,1,1),1);
+ assert.equal(c('loop_spawn',32,0x80000000,0x80002000,2,1),1);
+ assert.equal(c('loop_frame',2),2);
+ assert.equal(c('loop_pc',31),0);
+ assert.equal(c('loop_pc',32),0);
+ assert.equal(c('loop_state',31),4);
+ assert.equal(c('loop_state',32),4);
+ assert.equal(c('loop_guest_error',31),3);
+ assert.equal(c('loop_guest_error',32),3);
+ assert.equal(c('loop_retry_safe',31),0,'MMIO read has observable external callback side effect');
+ assert.equal(c('loop_retry_safe',32),1,'RAM-only failed allocation has no device side effect');
+ assert.equal(c('test_policy_calls'),1);
+ assert.equal(c('mem_pages'),0);
+ assert.equal(c('mem_set_page_budget',1),1);
+ assert.equal(c('loop_retry_quota',31),0,'MMIO source MUST NOT be replayed');
+ assert.equal(c('loop_retry_quota',32),1,'independent RAM-only instruction is safe to retry');
+ assert.equal(c('loop_frame',2),1);
+ assert.equal(c('loop_pc',31),0);
+ assert.equal(c('loop_pc',32),1);
+ assert.equal(c('loop_reg_a',32),2);
+ assert.equal(c('loop_state',32),3);
+ assert.equal(c('mem_read32',0x80002000),2);
+ assert.equal(c('test_policy_calls'),1,'MMIO callback must be invoked exactly once');
+ assert.equal(c('mem_pages'),1);
 });
