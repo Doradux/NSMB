@@ -264,3 +264,37 @@ test('RED: independent CPU stack frames must not overlap one another, including 
  assert.equal(c('loop_state',1),3);
  assert.equal(c('mem_read32',0x80009000),6);
 });
+
+test('device FIFO may be addressed by two CPU contexts while RAM stack reservations remain exclusive',async()=>{
+ const {wasm,call:c,writeInput}=await fresh({fixture:true});
+ assert.equal(typeof wasm._nsmbw_test_policy_install,'function',
+   'only compiled TEST fixture can register synthetic MMIO handlers');
+ assert.equal(writeInput([makePad(true)],0x80004000,7).written,true);
+ c('test_policy_install',3);
+ c('test_policy_rejection',1); // fail closed as W07 rejected device callback: 5
+ assert.equal(c('loop_cpu_spawn',41,0x80010000,0x80005010,
+   0x80004000,0xCC008000,1),1);
+ assert.equal(c('loop_cpu_spawn',42,0x80010000,0x80006010,
+   0xC0004000,0xCC008000,2),1,
+   'multiple C++ guests may address SAME GX FIFO, even when their readonly input aliases');
+ const ran=c('loop_frame',64);
+ assert.ok(ran>=2,'both contexts must actually dispatch compiled guest instructions');
+ for(const id of [41,42]){
+   assert.equal(c('loop_state',id),4,'typed device rejection must fault this context');
+   assert.equal(c('loop_guest_error',id),5);
+   assert.equal(c('loop_retry_quota',id),0,'rejected device callback must not retry');
+   assert.equal(c('loop_pc',id)>>>0,0x80010010,
+     'final stw into device must fault BEFORE advancing CPU PC');
+ }
+ assert.equal(c('test_policy_calls'),2,'each guest callback entered exactly once');
+ assert.equal(c('test_policy_last_region'),2,'same synthetic GX FIFO was selected');
+ assert.equal(c('mem_read32',0x80004000)>>>0,0x07000001,
+   'read-only input packet must not be rewritten by failed FIFO outputs');
+ // RAM outputs, unlike MMIO device registers, must keep exclusive ownership.
+ assert.equal(c('loop_cpu_spawn',43,0x80010000,0x80007010,
+   0x80004000,0x80009000,3),1);
+ assert.equal(c('loop_cpu_spawn',44,0x80010000,0x80008010,
+   0x80004000,0xC0009000,4),0,
+   'physically aliased RAM output may not be reserved by two independent CPUs');
+ assert.equal(c('loop_state',44),0);
+});
