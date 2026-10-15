@@ -3,10 +3,10 @@
 #include <array>
 #include <cstdint>
 #include "guest_cpu.hpp"
-#if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE)
+#if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE) || defined(NSMB_PHASE6_TRANSLATED_STORE_FIXTURE)
 extern "C" void func_80001000(CpuContext* ctx);
 #endif
-#ifdef NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE
+#if defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE) || defined(NSMB_PHASE6_TRANSLATED_STORE_FIXTURE)
 #include "translator-fixture/include/memory.h"
 #endif
 #ifdef __EMSCRIPTEN__
@@ -199,6 +199,50 @@ int EXPORT nsmbw_loop_translated_load_spawn(uint32_t id,uint32_t stackTop,
   return 1;
 }
 #endif
+#ifdef NSMB_PHASE6_TRANSLATED_STORE_FIXTURE
+// TEST ONLY: actual Translator.Cli-generated two stw + inlined bl/blr.
+// Writes are staged & checked using W07; snapshot fields hold original
+// guest addresses irrespective of mutable PPC registers.
+int EXPORT nsmbw_loop_translated_store_spawn(uint32_t id,uint32_t stackTop,
+ uint32_t destinationA,uint32_t destinationB,uint32_t payload,
+ uint32_t sda2,uint32_t sda1) {
+ lastError=0;
+ if(!id||id>0xFFFFu||find(id)||!guestOrdinaryRam(stackTop-16u,16u) ||
+    (stackTop&15u)!=0u || stackTop<16u) {lastError=1;return 0;}
+ const uint32_t base=stackTop-16u;
+ if(guestRegionsOverlap(base,16u,destinationA,4u) ||
+    guestRegionsOverlap(base,16u,destinationB,4u)) {
+   lastError=1;return 0;
+ }
+ for(const auto& t:tasks)if(t.id&&t.kind!=0) {
+   const uint32_t otherBase=t.cpu.stackTop-16u;
+   if(guestRegionsOverlap(base,16u,otherBase,16u) ||
+      guestRegionsOverlap(base,16u,t.cpu.inputGuest,4u) ||
+      guestRegionsOverlap(base,16u,t.cpu.outputGuest,4u) ||
+      guestRegionsOverlap(destinationA,4u,otherBase,16u) ||
+      guestRegionsOverlap(destinationB,4u,otherBase,16u) ||
+      guestRegionsOverlap(destinationA,4u,t.cpu.inputGuest,4u) ||
+      guestRegionsOverlap(destinationB,4u,t.cpu.inputGuest,4u) ||
+      guestRegionsOverlap(destinationA,4u,t.cpu.outputGuest,4u) ||
+      guestRegionsOverlap(destinationB,4u,t.cpu.outputGuest,4u)) {
+     lastError=1;return 0;
+   }
+ }
+ SyntheticCpu::State cpu{};
+ if(!SyntheticCpu::initialize(cpu,SyntheticCpu::Entry,stackTop,
+     0x80004000u,0x80008000u,0u)) {lastError=1;return 0;}
+ for(auto& t:tasks)if(!t.id) {
+   t=Context{};t.id=id;t.state=READY;t.kind=3;t.limit=1;t.retrySafe=0;
+   t.cpu=cpu;t.cpu.pc=0x80001000u;t.cpu.gpr[3]=payload;
+   t.cpu.gpr[4]=destinationA;t.cpu.gpr[6]=destinationB;
+   t.cpu.gpr[2]=sda2;t.cpu.gpr[13]=sda1;
+   // Immutable RAM ownership, untouched by translated GPR changes.
+   t.cpu.inputGuest=destinationA;t.cpu.outputGuest=destinationB;
+   return 1;
+ }
+ lastError=2;return 0;
+}
+#endif
 int EXPORT nsmbw_loop_suspend(uint32_t id) {
   lastError=0;auto* t=find(id);
   if(!t||t->state!=READY){lastError=3;return 0;}
@@ -242,6 +286,26 @@ int EXPORT nsmbw_loop_tick() {
     auto& t=tasks[index];
     if(!t.id||t.state!=READY) continue;
     cursor=(index+1)%CAPACITY;
+#ifdef NSMB_PHASE6_TRANSLATED_STORE_FIXTURE
+    if(t.kind==3) {
+      CpuContext candidate=static_cast<const CpuContext&>(t.cpu);
+      MemoryInline::Begin();
+      func_80001000(&candidate); // ORIGINAL PUBLIC translator C++ unmodified
+      const bool committed=MemoryInline::Commit();
+      if(!committed) {
+        t.error=MemoryInline::Fault();
+        t.retrySafe=MemoryInline::RetrySafe();
+        t.state=FAULT;
+        appendTrace((t.id<<16u)|0x8000u|t.pc);
+        return static_cast<int>(t.id);
+      }
+      static_cast<CpuContext&>(t.cpu)=candidate;
+      ++t.cpu.steps;t.cpu.pc=SyntheticCpu::Exit;t.regA=t.cpu.gpr[3];
+      ++t.pc;t.state=DONE;
+      appendTrace((t.id<<16u)|t.pc);
+      return static_cast<int>(t.id);
+    }
+#endif
 #if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE)
     if(t.kind==2) {
       // Real C# translator output, not handwritten JS or fake CPU emulation.
