@@ -228,3 +228,39 @@ test('RED gate: isolated CPU fixture distinguishes typed MMIO callback rejection
  }
  assert.equal(c('test_policy_calls'),2,'one callback per fault, no duplicate replay');
 });
+
+test('RED: CPU stack frame must not alias the input packet even through cached/uncached guest addresses',async()=>{
+ const {wasm,call:c,writeInput}=await fresh();
+ assert.equal(typeof wasm._nsmbw_loop_cpu_spawn,'function','requires real compiled CPU ABI');
+ assert.deepEqual(writeInput([makePad(true)],0x80004000,7),
+   {written:true,disconnected:false,status:0});
+ const word=c('mem_read32',0xC0004000)>>>0;
+ assert.equal(word,0x07000001);
+ const beforePages=c('mem_pages');
+ assert.equal(c('loop_cpu_spawn',25,0x80010000,0x80004010,
+    0xC0004000,0x80009000,3),0,
+   'RED: stack frame [0x80004000,0x80004010) aliases the input packet [0xC0004000,+4)');
+ assert.equal(c('loop_state',25),0,'reject BEFORE scheduling');
+ assert.equal(c('loop_ready'),0);
+ assert.equal(c('mem_read32',0x80004000)>>>0,word,'failed CPU configure must NOT damage input');
+ assert.equal(c('mem_pages'),beforePages,'no new stack allocation on rejected spawn');
+});
+test('RED: independent CPU stack frames must not overlap one another, including aliasing',async()=>{
+ const {wasm,call:c,writeInput}=await fresh();
+ assert.equal(typeof wasm._nsmbw_loop_cpu_spawn,'function','requires real compiled CPU ABI');
+ assert.equal(c('mem_set_page_budget',8),1);
+ assert.equal(writeInput([makePad(true)],0x80004000,4).written,true);
+ assert.equal(c('loop_cpu_spawn',1,0x80010000,0x80005010,
+   0x80004000,0x80009000,1),1);
+ const pc=c('loop_pc',1),reg=c('loop_cpu_gpr',1,1);
+ assert.equal(c('loop_cpu_spawn',2,0x80010000,0x80005010,
+   0x80004000,0x8000A000,2),0,
+  'RED: two synthetic guest contexts cannot share the same 16-byte caller stack');
+ assert.equal(c('loop_state',2),0);
+ assert.equal(c('loop_pc',1),pc);
+ assert.equal(c('loop_cpu_gpr',1,1),reg);
+ assert.equal(c('mem_read32',0x80004000)>>>0,0x04000001);
+ assert.equal(c('loop_frame',11),11,'legitimate CPU guest unaffected by rejected overlap');
+ assert.equal(c('loop_state',1),3);
+ assert.equal(c('mem_read32',0x80009000),6);
+});
