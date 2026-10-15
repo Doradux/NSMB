@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>W07 Phase4 single Wasm input-to-guest-frame diagnostic</title></head>
+<body><h1>One compiled Wasm: W08 input → W04 RAM → W03 guest frame</h1>
+<p>Only synthetic code. No original game or Wii hardware.</p>
+<pre id="status" data-state="pending">Loading shared WebAssembly</pre>
+<script type="module">
+import create from '/dist/joined_input.mjs';
+import {applyJoinedInputFrame,reapJoinedInputFrame,
+  keyboardAsStandardGamepad,nextInputSequence} from '/joined_host_input.mjs';
+const output=document.getElementById('status');
+const check=(ok,message)=>{if(!ok)throw Error(message);};
+try {
+ const m=await create({locateFile:()=>'/dist/joined_input.wasm'});
+ m._nsmbw_loop_reset();
+ const p={index:0,connected:true,mapping:'standard',axes:[0.6,-0.6,0,0],
+  buttons:Array.from({length:17},()=>({pressed:false,value:0}))};
+ p.buttons[0].pressed=true;
+ let r=applyJoinedInputFrame(m,[p],{sequence:1,guestId:5,addend:7});
+ check(r.state===3&&r.pc===1&&r.input.status===0,'GAMEPAD_GUEST_FRAME_FAILED');
+ check((m._nsmbw_mem_read32(0xC0009000)>>>0)===(r.regA>>>0),'SHARED_RAM_ALIAS_MISMATCH');
+ check(reapJoinedInputFrame(m,5),'GUEST_REAP_FAILED');
+ p.connected=false;
+ r=applyJoinedInputFrame(m,[p],{sequence:2,guestId:5,addend:7});
+ check(r.state===3&&r.input.disconnected,'UNPLUG_FRAME_FAILED');
+ check((m._nsmbw_mem_read32(0x80004000)>>>0)===0x02000000,'LATCHED_BUTTON_ON_UNPLUG');
+ check(reapJoinedInputFrame(m,5),'UNPLUG_REAP_FAILED');
+ const k=keyboardAsStandardGamepad(['ArrowRight','Space']);
+ r=applyJoinedInputFrame(m,[k],{sequence:3,guestId:5,addend:7});
+ check(r.state===3&&r.pc===1,'KEYBOARD_FRAME_FAILED');
+ check((m._nsmbw_mem_read8(0x80004003)>>>0)===1,'KEYBOARD_BUTTON_WRONG');
+ check(reapJoinedInputFrame(m,5),'KEYBOARD_REAP_FAILED');
+ m._nsmbw_loop_reset();check(m._nsmbw_mem_set_page_budget(0)===1,'ZERO_QUOTA_SETUP_FAILED');
+ const noInput=applyJoinedInputFrame(m,[p],{sequence:4,guestId:5});
+ check(!noInput.executed&&!noInput.input.written&&noInput.input.status===3,'INPUT_QUOTA_IGNORED');
+ check(m._nsmbw_loop_state(5)===0&&m._nsmbw_mem_pages()===0,'QUOTA_CORRUPTED_STATE');
+ check(m._nsmbw_mem_set_page_budget(2)===1,'PAGE_BUDGET_SETUP_FAILED');
+ let sequence=0;
+ const started=performance.now();
+ for(let i=0;i<128;i++) {
+   sequence=nextInputSequence(sequence);
+   const r=applyJoinedInputFrame(m,[p],{sequence,guestId:(i%8)+1,addend:i});
+   check(r.state===3&&r.pc===1&&r.guestError===0,'FRAME_NOT_COMPLETED_'+i);
+   check(reapJoinedInputFrame(m,(i%8)+1),'REAP_FAILED_'+i);
+   check(m._nsmbw_mem_pages()===2,'PAGE_BOUND_EXCEEDED_'+i);
+ }
+ const elapsed=performance.now()-started;
+ check(Number.isFinite(elapsed)&&elapsed>=0,'INVALID_PERFORMANCE_CLOCK');
+ output.dataset.state='pass';
+ output.textContent='PASS: same compiled Wasm W08 Gamepad/keyboard/neutral → Wii RAM → W03 scheduled C++ guest, quota0 error, 128 frames, two-page budget; '+elapsed.toFixed(2)+' ms';
+}catch(error) {
+ output.dataset.state='fail';
+ output.textContent='FAIL: '+(error?.message||String(error));
+ console.error('Joined synthetic input runtime failed',error);
+}
+</script></body></html>
