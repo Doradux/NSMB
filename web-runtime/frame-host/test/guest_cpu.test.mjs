@@ -160,3 +160,45 @@ test('corrupted checked guest stack restore faults context 7 without changing SP
  assert.equal(c('loop_retry_quota',1),0);
  assert.equal(c('mem_read32',0x80009000),9,'earlier committed output is not rolled back');
 });
+
+test('red-first: PPC stack cannot overlap the shared input packet or output, including guest aliases',async()=>{
+ const {call:c}=await fresh();
+ assert.equal(c('services_input_store',0x80004000,5,0,0,7),1);
+ const initial=c('mem_read32',0x80004000)>>>0;
+ assert.equal(initial,0x07000005);
+ for(const [stack,input,result] of [
+   [0x80004010,0x80004000,0x80009000],
+   [0x80004010,0xC0004000,0x80009000],
+   [0x80009010,0x80004000,0x80009000],
+   [0x80005010,0x80005000,0x80009000],
+   [0x80005010,0x80004000,0xC0005000],
+   [0x80005010,0x80004000,0xC0004000]
+ ]){
+   assert.equal(c('loop_cpu_spawn',1,ENTRY,stack,input,result,0),0,
+     'physical alias/overlap must be rejected BEFORE guest writes');
+   assert.equal(c('loop_state',1),0);
+   assert.equal(c('mem_read32',0xC0004000)>>>0,initial,
+     'rejected CPU spawn must not replace stored input packet');
+ }
+ assert.equal(c('mem_pages'),1);
+});
+test('red-first: live CPU contexts cannot overlap each other’s stack/input/output guest words',async()=>{
+ const {call:c}=await fresh();
+ assert.equal(c('services_input_store',0x80004000,5,0,0,7),1);
+ spawn(c,1,0x80005010,0x80004000,0x80009000,0);
+ for(const [stack,input,result] of [
+   [0xC0005010,0x80004000,0x8000A000],
+   [0x80009010,0x80004000,0x8000A000],
+   [0x80006010,0xC0005000,0x8000A000],
+   [0x80006010,0x80004000,0xC0005000],
+   [0x80006010,0x80004000,0xC0009000]
+ ]){
+   assert.equal(c('loop_cpu_spawn',2,ENTRY,stack,input,result,1),0,
+     'existing live CPU guest memory ownership may not alias new stack/results');
+   assert.equal(c('loop_state',2),0);
+ }
+ assert.equal(c('loop_state',1),1);
+ assert.equal(c('mem_read32',0x80004000)>>>0,0x07000005);
+ spawn(c,2,0x80006010,0xC0004000,0x8000A000,1);
+ assert.equal(c('loop_state',2),1,'shared READ-ONLY packet across contexts stays legal');
+});

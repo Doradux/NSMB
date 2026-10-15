@@ -44,7 +44,17 @@ to 0 as SDA placeholders; `r3` packet and resulting callee return value,
 `r0` temporary to restore caller LR. GPRs r7..r31 remain zero, not an
 implemented full PPC ABI. Stack top must be 16-byte aligned, and
 `[top-16,top)` must be one permitted guest RAM page; actual writes still
-pass W07 allocation/quota checks. An invalid spawn leaves scheduler intact.
+pass W07 allocation/quota checks. **Spawn performs physical-guest overlap
+preflight before any guest write:** the 16-byte frame cannot overlap its own
+input/output word, and any still-unreaped CPU context's stack/input/output
+reservations cannot collide with new writable stack/output words. Cached
+`0x800...` and uncached `0xC000...` aliases are compared by physical guest
+address (`addr & 0x3FFFFFFF`). Sharing a READ-ONLY 4-byte input packet across
+contexts is supported. A context retains its owned ranges until explicit
+reap/reset, including while PAUSED, DONE, FAULTED or CANCELLED. This
+preflight is NOT a general virtual-memory/MMU allocator and does not police
+arbitrary legacy W03 writes; the host must separately reserve those.
+An invalid spawn leaves scheduler, other guests and checked RAM intact.
 
 ### Fixed, declared synthetic guest program
 

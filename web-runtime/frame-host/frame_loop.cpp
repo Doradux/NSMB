@@ -35,6 +35,14 @@ std::array<uint32_t,TRACE_SIZE> trace{};
 uint32_t cursor=0, traceCount=0, traceStart=0, traceDropped=0, lastError=0;
 // Conservative current-W07 fallback: a guest device address might already
 // have caused side effects before a later checked RAM allocation fails.
+// W04 cached/uncached addresses are aliases of the SAME physical guest bytes.
+// Preflight all CPU guest memory reservations before accepting new contexts.
+// uint64 arithmetic avoids overflow when comparing 32-bit guest ranges.
+bool guestRegionsOverlap(uint32_t addrA,uint32_t lenA,uint32_t addrB,uint32_t lenB) {
+  const uint64_t a=static_cast<uint64_t>(addrA&0x3FFFFFFFu);
+  const uint64_t b=static_cast<uint64_t>(addrB&0x3FFFFFFFu);
+  return a<b+lenB && b<a+lenA;
+}
 bool mayTouchDevice(uint32_t address) {
   const uint64_t begin=address, end=begin+4u;
   return begin<0xCE000000ull && end>0xCC000000ull;
@@ -90,6 +98,31 @@ int EXPORT nsmbw_loop_cpu_spawn(uint32_t id,uint32_t entry,uint32_t stackTop,
   SyntheticCpu::State s{};
   if(!SyntheticCpu::initialize(s,entry,stackTop,inputGuest,outputGuest,salt)){
     lastError=1;return 0;
+  }
+  const uint32_t stackBase=s.stackTop-16u;
+  // A checked write may succeed yet corrupt the input packet, another
+  // context's frame or its output. Validate the physical alias ownership
+  // BEFORE spawning. Shared read-only input is allowed; writable output
+  // or stack must never overlap any other reserved word.
+  if(guestRegionsOverlap(stackBase,16,inputGuest,4) ||
+     guestRegionsOverlap(stackBase,16,outputGuest,4) ||
+     guestRegionsOverlap(inputGuest,4,outputGuest,4)) {
+    lastError=1;return 0;
+  }
+  for(const auto& existing:tasks)if(existing.id&&existing.kind==1) {
+    const uint32_t theirStack=existing.cpu.stackTop-16u;
+    const uint32_t theirInput=existing.cpu.gpr[4];
+    const uint32_t theirOutput=existing.cpu.gpr[6];
+    if(guestRegionsOverlap(stackBase,16,theirStack,16) ||
+       guestRegionsOverlap(stackBase,16,theirInput,4) ||
+       guestRegionsOverlap(stackBase,16,theirOutput,4) ||
+       guestRegionsOverlap(inputGuest,4,theirStack,16) ||
+       guestRegionsOverlap(inputGuest,4,theirOutput,4) ||
+       guestRegionsOverlap(outputGuest,4,theirStack,16) ||
+       guestRegionsOverlap(outputGuest,4,theirInput,4) ||
+       guestRegionsOverlap(outputGuest,4,theirOutput,4)) {
+      lastError=1;return 0;
+    }
   }
   for(auto& t:tasks)if(!t.id){
     t=Context{};
