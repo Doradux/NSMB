@@ -99,3 +99,24 @@ test('128 reset and guest reuse cycles do not accumulate staged RAM or context s
  }
  c('loop_reset');assert.equal(c('mem_pages'),0);
 });
+
+test('RED: late allocation fault must also roll back the first NEW sparse page and free its quota',async()=>{
+ const {c}=await create();
+ assert.equal(c('mem_pages'),0);
+ assert.equal(c('mem_set_page_budget',1),1);
+ assert.equal(spawn(c,9,0x80010000,0x80011000,0x12345678),1);
+ assert.equal(c('loop_frame',1),1);
+ assert.equal(c('loop_state',9),4);
+ assert.equal(c('loop_guest_error',9),3);
+ assert.equal(c('loop_pc',9)>>>0,PC);
+ assert.equal(c('loop_cpu_gpr',9,3)>>>0,0x12345678);
+ assert.equal(c('mem_read32',0x80010000),0);
+ assert.equal(c('mem_read32',0x80011000),0);
+ const pagesAfterAbort=c('mem_pages');
+ const canWriteFreshPage=c('mem_write32',0x80012000,0xDEADBEEF);
+ assert.deepEqual({pagesAfterAbort,canWriteFreshPage},
+   {pagesAfterAbort:0,canWriteFreshPage:1},
+   'failed two-write transaction must roll back NEW page allocation, not exhaust page budget');
+ assert.equal(c('loop_reap',9),1);
+ assert.equal(c('mem_pages'),1);
+});

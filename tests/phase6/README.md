@@ -115,3 +115,38 @@ regression. Once Luigi publishes a NEW clean exact SHA, rebuild the
 public synthetic PowerPC with actual installed C# Translator.Cli,
 inspect emitted C++ and repeat four tests and author true Chrome
 suite before approving. No changes made to Luigi's dirty worktree.
+
+
+## Phase6 Luigi source-generated transactional writes 3f81e8d reviewed
+
+Independent exact clean SHA3f81e8d at
+C:\NSMBcowork\worktrees\Peach-Phase6-Luigi-Audit.
+Executed actual public precompiled upstream C# Translator.Cli on a
+new 280-byte copyright-free DOL with synthetic guest PPC STW, STW,
+BL, BLR, ADDI, BLR. Read actual generated C++ CpuContext* entry,
+both FlatWrite32 calls, and helper inlining. Linked with authorized
+Emscripten into real Emscripten synthetic fixture Wasm (no original
+game bytes). Author suite 10/10 PASS zero skipped incl real Chrome.
+Peach independently ran translated-store-atomicity.test.mjs:
+**4 PASS, 1 FAIL** on real Wasm.
+
+NEW critical RED source-generated write regression: initial sparse
+W04 pages=0, budget=1, guest stores to TWO DIFFERENT new RAM pages
+0x80010000 and 0x80011000. First commit allocates first new page,
+second fails quota3. The journal reverses first word back to 0 but
+DOES NOT free the newly allocated sparse page. Actual
+{pagesAfterAbort:1, canWriteFreshPage:0}, expected
+{pagesAfterAbort:0, canWriteFreshPage:1} where unrelated follow-up
+fresh-page write is to 0x80012000. PC and GPR are preserved,
+guest word is zero, and device callback count remains zero: the
+bug is leaked resource quota under failed transactional writes, not
+partial byte data. Repeat failures can starve the checked guest.
+Author's old late-failure test seeded the first RAM page upfront
+and consequently missed the new-page resource leak.
+
+Fix requires full sparse allocation preflight/atomic reservation or
+rollback page allocations, not only restore word bytes. Do not
+replay device side effects, promote MMIO to RAM, or report gameplay.
+Formal W03 Peach 3f81e8d CHANGES REQUESTED:
+C:\NSMBcowork\reviews\2026-10-15T10-11-56-792Z_Peach_to_W03_a86e7379.md
+Luigi and Mario notified, new clean SHA required.
