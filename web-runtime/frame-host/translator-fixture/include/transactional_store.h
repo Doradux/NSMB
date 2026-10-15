@@ -42,6 +42,25 @@ inline void FlatWrite32(uint32_t guest,uint32_t value) {
    nsmbw_interop_device_invoked()==0u;return;}
  writes[n++]={guest,original,value};
 }
+// Narrow read-your-own-write forwarding for our exact synthetic 4-op
+// STW->LWZ->STW fixture. Nothing is written to guest RAM by a staged read;
+// physically aliased cached/uncached addresses resolve to the same word.
+// Deny MMIO, unaligned and unknown guest regions BEFORE any device callback.
+inline uint32_t FlatRead32(uint32_t guest) {
+ if(errorCode)return 0;
+ if(!ordinaryRam(guest)){errorCode=7;retrySafe=0;return 0;}
+ const uint32_t phys=canonical(guest);
+ for(uint32_t i=0;i<n;++i)if(canonical(writes[i].address)==phys)
+   return writes[i].value;
+ const uint32_t word=nsmbw_interop_read32(guest);
+ const uint32_t code=nsmbw_interop_status();
+ if(code) {
+   errorCode=code;
+   retrySafe=0; // Conservative: a preceding store may be staged.
+   return 0;
+ }
+ return word;
+}
 inline bool Commit() {
  if(errorCode)return false;
  if(n==0)return true;
