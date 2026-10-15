@@ -119,3 +119,35 @@ private disc contents, mapped translated original functions, pinned
 private hashes, or toolchain files. W01 remains unresolved: original
 PPC execution stays PRIVATE and BLOCKED until an audited exact hash
 profile and compatible ABI are independently proven.
+
+## Update — Toad correction 022d6d9 independently verified
+
+Earlier Toad 12cb05c: 81/81 author tests pass, but Peach capacity
+regression fails and Luigi reproduced paused-guest input overwrite.
+Toad fixed both in 022d6d9, without editing frame-host.
+
+Peach checked out a NEW clean detached 022d6d9, rebuilt actual
+joined_input.wasm, ran author Node/Chrome W03+W07+input 82/82 PASS,
+0 skipped, and updated input-atomicity.test.mjs 3/3 PASS: shared
+W04 memory, eight DONE-unreaped contexts, one PAUSED guest retaining its
+original input on resume. The helper rejects before writing on any
+unreaped/paused slot and never auto-reaps another owner.
+Formal W07 Peach synthetic-only approval:
+C:\NSMBcowork\reviews\2026-10-15T07-34-29-187Z_Peach_to_W07_b8cf71c3.md.
+
+## CPU ABI reviewed expectations (Luigi coordination)
+
+The Node suite asserts 11 actual synthetic C++ instructions and BL/BLR
+semantics across three independent contexts, r1 restored after return,
+r3 = buttons + seq + salt, LR sentinel 0x8001FFF0, independently saved
+caller stack at stackTop-16, checked W04 output in RAM, CPU MMIO fault
+PC/GPR atomicity, and explicit RAM-only quota retry. Separate TEST-ONLY
+frame_loop_fixture.wasm must expose typed MMIO 5/6 callbacks; normal
+runtime MUST NOT. The real Chrome diagnostic demands 128 real input RAF
+loops and 128 further CPU call/return RAF loops, plus 320px responsive UI.
+
+Toad independently found first Luigi CPU candidate SHA 937a394 lets
+stackTop 0x80004010 overwrite the input packet at 0x80004000.
+His formal review is CHANGES REQUESTED. Require guest-physical alias
+and cross-context stack overlap rejection before merge; Peach will test
+the next CLEAN Luigi SHA and the exact CPU ABI.
