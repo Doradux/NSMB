@@ -162,3 +162,16 @@ test('hostile oversized Gamepad array-like input is neutralized without enumerat
   assert.equal(m._nsmbw_mem_read32(0x80004000)>>>0,0x08000000);
   assert.equal(m._nsmbw_mem_pages(),2);
 });
+
+test('paused contexts cannot have their shared input overwritten by one-shot helper',async()=>{
+ const m=await fresh();
+ assert.equal(m._nsmbw_services_input_store(0x80004000,1,0,0,1),1);
+ assert.equal(m._nsmbw_loop_spawn(77,0x80004000,0x80009000,1,1),1);
+ assert.equal(m._nsmbw_loop_suspend(77),1);
+ const original=m._nsmbw_mem_read32(0x80004000)>>>0;
+ assert.throws(()=>applyJoinedInputFrame(m,[pad()],{guestId:88,sequence:10}),
+   /GUEST_CONTEXTS_ALREADY_PRESENT/);
+ assert.equal(m._nsmbw_mem_read32(0x80004000)>>>0,original,
+  'paused guest source input must not be overwritten before resume');
+ assert.equal(m._nsmbw_loop_state(77),2);
+});
