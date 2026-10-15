@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Phase5 synthetic timebase</title></head><body>
+<h1>Phase5 deterministic host ticks → one checked guest RAM → W03 CPU</h1>
+<pre id="status" data-state="pending">Loading real WebAssembly</pre>
+<script type="module">
+import create from '/dist/joined_tick.mjs';
+import {createSyntheticTickClock} from '/tick_host.mjs';
+const out=document.getElementById('status');
+const ensure=(p,msg)=>{if(!p)throw Error(msg)};
+try{
+ const m=await create({locateFile:()=>'/dist/joined_tick.wasm'});
+ m._nsmbw_loop_reset();
+ const clock=createSyntheticTickClock(m,{initial:0xFFFFFFFEn});
+ ensure(clock.advance(1n).low32===0xFFFFFFFF,'PRE_WRAP');
+ let status=clock.advance(1n);
+ ensure(status.written&&status.low32===0&&status.rolledOver,'32BIT_WRAP');
+ ensure((m._nsmbw_mem_read32(0xC0008000)>>>0)===0,'GUEST_ALIAS');
+ clock.advance(61n);
+ for(let i=0;i<3;i++)
+  ensure(m._nsmbw_loop_cpu_spawn(i+1,0x80010000,0x80005010+i*0x1000,
+    0xC0008000,0x80009000+i*0x1000,i)===1,'CPU_SPAWN');
+ ensure(m._nsmbw_loop_frame(33)===33,'CPU_FRAMES');
+ for(let i=0;i<3;i++){
+  ensure(m._nsmbw_loop_state(i+1)===3,'CPU_DONE');
+  ensure(m._nsmbw_mem_read32(0x80009000+i*0x1000)===61+i,'CPU_GUEST_TICKS');
+ }
+ m._nsmbw_loop_reset();clock.reset();ensure(m._nsmbw_mem_set_page_budget(0)===1,'QUOTA_SETUP');
+ const denied=clock.advance(61n);
+ ensure(!denied.written&&denied.status===3&&clock.ticks===0n&&m._nsmbw_mem_pages()===0,'QUOTA_ROLLBACK');
+ ensure(m._nsmbw_mem_set_page_budget(7)===1,'QUOTA_UP');
+ const began=performance.now();
+ for(let i=0;i<128;i++){
+  m._nsmbw_loop_reset();clock.reset();
+  ensure(clock.publish(BigInt(i)).written,'FRAME_TICK');
+  ensure(m._nsmbw_loop_cpu_spawn(1,0x80010000,0x80005010,
+    0x80008000,0x80009000,1)===1,'FRAME_SPAWN');
+  ensure(m._nsmbw_loop_frame(11)===11,'FRAME_DISPATCH');
+  ensure(m._nsmbw_mem_read32(0x80009000)===i+1,'FRAME_RESULT');
+  ensure(m._nsmbw_mem_pages()===3,'BOUND_PAGES');
+ }
+ const elapsed=performance.now()-began;
+ out.dataset.state='pass';
+ out.textContent='PASS: actual single C++/Wasm W03 CPU reads checked synthetic tick from W04 RAM; 32bit rollover, 3 contexts, quota0, 128 resets and 3-page cap; '+elapsed.toFixed(2)+'ms';
+}catch(e){out.dataset.state='fail';out.textContent='FAIL: '+(e?.message||String(e));console.error(e);}
+</script></body></html>
