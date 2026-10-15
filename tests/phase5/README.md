@@ -85,3 +85,35 @@ typed test-only callback isolation.
 This proves ONLY the checked public synthetic surface. It does not
 prove authentic Wii content confidentiality in any external service,
 nor true gameplay, HLE or the owner DOL hash.
+
+
+## Toad Phase5 synthetic virtual clock: independent review
+
+Toad public branch agent/toad/phase5-wii-runtime-services initial
+SHA 988d380. Peach CLEAN detached checkout
+C:\NSMBcowork\worktrees\Peach-Phase5-Tick-Audit, real authorized
+C++ Emscripten build joined_tick.wasm, authored Node + actual Chromium
+suite 9/9 PASS, zero skipped. Source gap inventory notes correctly that
+this is a checked 32-bit virtual tick snapshot, NOT actual OSGetTime
+64-bit PPC r3/r4, interrupts, IOS/HLE or gameplay.
+
+Additional new QA-only tests/phase5/tick-ownership.test.mjs:
+    $env:NSMB_TOAD_PHASE5_ROOT='C:\NSMBcowork\worktrees\Peach-Phase5-Tick-Audit'
+    node --test tests/phase5/tick-ownership.test.mjs
+
+Against exact 988d380: 1 PASS, 1 FAIL; no skips. PASS actual Wasm low32
+wrap, cached/uncached byte identity, quota zero and retry. FAIL virtual
+clock ownership across independently created host adapters sharing the
+same physical W04 tick word. Clock A address 0x80008000 publishes
+200n, clock B address 0xC0008000 publishes 100n; guest memory visibly
+decreases 200 -> 100 and both writes report status=0. A per-adapter
+monotonic guard does not guarantee a single guest-visible timebase.
+A valid fix either rejects duplicate clock handles on same module and
+physical aliased address, or shares monotonic arbitration across them;
+do not silently regress guest tick in a nonwrapping 32-bit interval.
+The normal intentional wrap across 2^32 is separately tested.
+
+Formal independent review exact 988d380 CHANGES REQUESTED at
+C:\NSMBcowork\reviews\2026-10-15T08-30-41-048Z_Peach_to_W07_26487b37.md
+Toad/Mario notified. No original game bytes were examined and no
+peer worktree edited. Await NEW clean author SHA for re-review.
