@@ -70,7 +70,8 @@ test('invalid host samples, regressions, tick overflow, giant deltas are rejecte
  assert.throws(()=>c.advance(60750001n),/TICK_STEP_TOO_LARGE/);
  assert.equal(c.ticks,2n);
  assert.equal(m._nsmbw_mem_read32(0x80008000),2);
- const near=createSyntheticTickClock(m,{initial:(2n**64n)-1n});
+ const other=await fresh();
+ const near=createSyntheticTickClock(other,{initial:(2n**64n)-1n});
  assert.throws(()=>near.advance(1n),/TICK_OVERFLOW/);
 });
 test('single checked clock page and CPU guest stack quota fault isolate three contexts',async()=>{
@@ -126,4 +127,21 @@ test('synthetic clock host cannot be reentered from hostile WASM provider',()=>{
  const failed=clock.advance(1n);
  assert.equal(failed.written,false);
  assert.equal(clock.ticks,0n);
+});
+
+test('RED-first: one canonical clock owner per Wasm, including cached/uncached aliases',async()=>{
+ const m=await fresh();
+ const first=createSyntheticTickClock(m,{address:0x80008000});
+ assert.equal(first.publish(200n).written,true);
+ const before=m._nsmbw_mem_read32(0xC0008000)>>>0;
+ assert.equal(before,200);
+ assert.throws(()=>createSyntheticTickClock(m,{address:0xC0008000,initial:0n}),
+  /TICK_CLOCK_ALREADY_OWNED/,'alias MUST NOT create independent stale clock');
+ assert.throws(()=>createSyntheticTickClock(m,{address:0x90008000,initial:0n}),
+  /TICK_CLOCK_ALREADY_OWNED/,'one module has one authoritative synthetic virtual timebase');
+ assert.equal(m._nsmbw_mem_read32(0xC0008000)>>>0,before);
+ assert.equal(first.advance(61n).low32,261);
+ assert.equal(m._nsmbw_mem_read32(0x80008000),261);
+ const other=await fresh(), independent=createSyntheticTickClock(other);
+ assert.equal(independent.publish(100n).written,true,'different Wasm module has independent clock');
 });

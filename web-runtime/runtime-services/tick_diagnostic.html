@@ -10,6 +10,11 @@ try{
  const m=await create({locateFile:()=>'/dist/joined_tick.wasm'});
  m._nsmbw_loop_reset();
  const clock=createSyntheticTickClock(m,{initial:0xFFFFFFFEn});
+ let preventedDuplicate=false;
+ try{createSyntheticTickClock(m,{address:0xC0008000})}catch(e){
+   preventedDuplicate=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
+ }
+ ensure(preventedDuplicate,'DUPLICATE_CLOCK_OWNER_ALIAS');
  ensure(clock.advance(1n).low32===0xFFFFFFFF,'PRE_WRAP');
  let status=clock.advance(1n);
  ensure(status.written&&status.low32===0&&status.rolledOver,'32BIT_WRAP');

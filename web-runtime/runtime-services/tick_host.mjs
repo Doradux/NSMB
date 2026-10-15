@@ -1,6 +1,10 @@
 // Deterministic, HOST-SUPPLIED synthetic virtual ticks. No Date/performance,
 // no polling or real OS timebase. Only low 32 bits stored in checked Wii RAM.
 // Not the Nintendo OSGetTick/OSGetTime 64-bit ABI.
+// Single time authority per actual Emscripten module. Guest aliases share RAM,
+// so a second clock with an independent epoch could regress guest-visible ticks.
+// Ownership lasts until the Wasm module is discarded (WeakSet is GC-safe).
+const CLOCK_OWNERS=new WeakSet();
 const MAX64=(1n<<64n)-1n;
 const MAX_STEP=60750000n; // diagnostic guard: at most 1 virtual second per advance
 const uint64=(v,name)=>{
@@ -15,6 +19,8 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
   const status=module?._nsmbw_services_tick_status;
   if(typeof store!=='function'||typeof status!=='function')
     throw new TypeError('MISSING_CHECKED_TICK_SERVICE');
+  if(CLOCK_OWNERS.has(module))throw new Error('TICK_CLOCK_ALREADY_OWNED');
+  CLOCK_OWNERS.add(module); // no native side effect occurs during registration
   let last=initial;
   let busy=false;
   function publish(candidate) {
