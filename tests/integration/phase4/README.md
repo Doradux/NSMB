@@ -205,3 +205,35 @@ Only bounded synthetic PPC-style diagnostics are approved by Peach,
 NOT actual translated NSMBW function/stack, HLE, Wii CPU, GX or game boot.
 The original W01 pinned DOL hash mismatch and strict audit negatives remain
 blocking.
+
+## Latest CPU revision — independent device/RAM alias review 2be39fe
+
+Luigi published exact SHA 2be39fe after prior approved 65af751.
+It corrects reservation semantics: **ordinary mapped W04 RAM**
+still has exclusive writable CPU stack/output ownership using canonical
+guest physical address aliases, but multiple distinct CPU contexts
+may legally target the **same synthetic MMIO/GX device register**.
+Typed W07 returns errors 4/5/6 per context and does not turn MMIO
+into ordinary RAM or silently replay external side effects.
+
+Peach created a new independent clean detached checkout
+Peach-Phase4-Luigi-DeviceReview, rebuilt actual C++/Emscripten normal
+linked CPU Wasm, separate TEST-ONLY callback fixture and Asyncify,
+then ran author Node + real Chrome tests **39/39 PASS, zero skipped**.
+Peach's previous Phase4 suite was **15/15 PASS**, and the newly added
+**positive shared-device + negative RAM-output alias** adversarial
+test passes as well, yielding **16/16 independent tests**, including
+Chrome at 320px and 128+128 actual RAFs.
+
+New test keeps two synthetic C++ guest contexts sharing the SAME GX FIFO
+0xCC008000 (legitimate device-side access), verifies their independent
+fault status 5 and preserved fault PC 0x80010010, exactly two
+test-device handler invocations, and an unchanged read-only input
+packet. In the **same** Wasm it then rejects two additional CPU
+contexts whose outputs use cached/uncached aliases of the same W04 RAM
+physical word. The TEST-only mock callback is absent from normal Wasm.
+
+The original translated Wii game is still NOT demonstrated. No
+hardware Wii input, PowerPC opcode decoder, native HostContext
+fiber semantics, frame-accurate gameplay, GX/IOS or original asset
+has been loaded in these tests.
