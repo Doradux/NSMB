@@ -1,0 +1,53 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"></head>
+<body><h1>Public synthetic PPC lwz translated by real C# CLI, checked W07 RAM</h1><pre id="status">Working...</pre>
+<script type="module">
+import factory from './dist/frame_loop_translated_load_fixture.mjs';
+import {createFrameHost} from './host.mjs';
+const pre=document.querySelector('#status');
+const ok=(value,message)=>{if(!value)throw Error(message);};
+try{
+ const m=await factory({locateFile:()=>new URL('./dist/frame_loop_translated_load_fixture.wasm',import.meta.url).href});
+ const c=(n,...a)=>{const f=m['_nsmbw_'+n];if(typeof f!=='function')throw Error('Missing Wasm '+n);return f(...a);};
+ let callbacks=0,denied=0;
+ c('loop_reset');
+ const reads=[[1,0x12345678],[2,0xFFFFFFFF],[3,0xAABBCCDD]];
+ for(const [id,value] of reads){
+   const address=0x80010000+id*0x1000;
+   ok(c('mem_write32',address,value)===1,'guest RAM allocation');
+   ok(c('loop_translated_load_spawn',id,0x80004010+id*0x1000,
+      id===2?(address|0x40000000):address,0x81002000+id,0x81003000+id)===1,'spawn real translator PPC read');
+ }
+ const host=createFrameHost(m,{ids:[1,2,3],budget:2,maxFrames:3,onFrame:()=>callbacks++});
+ const done=await host.start();
+ ok(done.reason==='completed'&&done.done===3&&callbacks===2,'3 guest contexts across 2 real animation frames');
+ for(const [id,value] of reads){
+   ok((c('loop_cpu_gpr',id,3)>>>0)===value,'actual emitted FlatRead32 result');
+   ok((c('loop_pc',id)>>>0)===0x8001FFF0,'PC return');
+ }
+ host.dispose();
+ c('loop_reset');
+ ok(c('loop_translated_load_spawn',1,0x80005010,0xCC008000,0,0)===1,'denied MMIO guest start');
+ const faultHost=createFrameHost(m,{ids:[1],budget:1,maxFrames:2,onFrame:()=>callbacks++});
+ const bad=await faultHost.start();
+ ok(bad.reason==='blocked'&&bad.faulted===1,'MMIO rejected');
+ ok(c('loop_guest_error',1)===4,'W07 typed MMIO status4');
+ ok((c('loop_pc',1)>>>0)===0x80001000,'failed generated lwz PC remains original');
+ ok((c('loop_cpu_gpr',1,3)>>>0)===0xDEADBEEF,'failed C++ emitted value not committed');
+ faultHost.dispose();denied++;
+ for(let i=0;i<128;i++){
+   c('loop_reset');
+   ok(c('mem_write32',0x80004000,i)===1,'guest RAM write');
+   ok(c('loop_translated_load_spawn',1,0x80005010,0x80004000,0,0)===1,'spawn translated read');
+   const run=createFrameHost(m,{ids:[1],budget:1,maxFrames:2,onFrame:()=>callbacks++});
+   const result=await run.start();
+   ok(result.reason==='completed'&&c('loop_cpu_gpr',1,3)===i,'genuine translated read across real RAF');
+   run.dispose();
+ }
+ c('loop_reset');ok(c('mem_pages')===0,'guest memory reset');
+ const data={status:'pass',translator:'real upstream Translator.Cli',guest:'public lwz r3,0(r4);blr',
+   realWasm:true,contexts:3,browserAnimationFrames:callbacks,mmioDenied:denied,guestPCPreserved:true,
+   stressCycles:128,finalPages:0,scope:'test-only checked W07 FlatRead32, NO native Wii or Nintendo data'};
+ window.__nsmbTranslatedRead=data;pre.textContent=JSON.stringify(data,null,2);
+}catch(error){const data={status:'fail',error:String(error?.stack||error)};
+ window.__nsmbTranslatedRead=data;pre.textContent=JSON.stringify(data,null,2);}
+</script></body></html>

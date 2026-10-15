@@ -3,8 +3,11 @@
 #include <array>
 #include <cstdint>
 #include "guest_cpu.hpp"
-#ifdef NSMB_PHASE5_TRANSLATED_FIXTURE
+#if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE)
 extern "C" void func_80001000(CpuContext* ctx);
+#endif
+#ifdef NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE
+#include "translator-fixture/include/memory.h"
 #endif
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -162,7 +165,7 @@ int EXPORT nsmbw_loop_cpu_spawn_abi(uint32_t id,uint32_t entry,uint32_t stackTop
   t->cpu.gpr[13]=sda1;
   return 1;
 }
-#ifdef NSMB_PHASE5_TRANSLATED_FIXTURE
+#if defined(NSMB_PHASE5_TRANSLATED_FIXTURE)
 // Test-only: invoke REAL C# translator-generated C++ (2 synthetic PPC
 // instructions) through exact CpuContext* baseline ABI, one host dispatch.
 int EXPORT nsmbw_loop_translated_spawn(uint32_t id,uint32_t stackTop,
@@ -175,6 +178,23 @@ int EXPORT nsmbw_loop_translated_spawn(uint32_t id,uint32_t stackTop,
   t->kind=2;
   t->cpu.pc=0x80001000u;
   t->cpu.gpr[3]=initialR3;
+  t->cpu.gpr[2]=sda2;t->cpu.gpr[13]=sda1;
+  return 1;
+}
+#endif
+#ifdef NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE
+// Another TEST-ONLY real-generated two-instruction PPC fixture:
+// lwz r3,0(r4); blr. The inputGuest is a checked 32-bit W04/W07 address,
+// never a native pointer. No side-effectful guest memory writes emitted.
+int EXPORT nsmbw_loop_translated_load_spawn(uint32_t id,uint32_t stackTop,
+    uint32_t inputGuest,uint32_t sda2,uint32_t sda1) {
+  if(!nsmbw_loop_cpu_spawn(id,SyntheticCpu::Entry,stackTop,
+                          inputGuest,0x80008000u+id*0x1000u,0u))
+    return 0;
+  auto* t=find(id);
+  t->kind=2;
+  t->cpu.pc=0x80001000u;
+  t->cpu.gpr[3]=0xDEADBEEFu;
   t->cpu.gpr[2]=sda2;t->cpu.gpr[13]=sda1;
   return 1;
 }
@@ -222,11 +242,30 @@ int EXPORT nsmbw_loop_tick() {
     auto& t=tasks[index];
     if(!t.id||t.state!=READY) continue;
     cursor=(index+1)%CAPACITY;
-#ifdef NSMB_PHASE5_TRANSLATED_FIXTURE
+#if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE)
     if(t.kind==2) {
       // Real C# translator output, not handwritten JS or fake CPU emulation.
       // This synthetic 2-instruction function has no memory or device calls.
+#ifdef NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE
+      // Generated code itself is unmodified. Run it on a temporary
+      // register context, then commit only on checked W07 success.
+      // This transaction covers the *one synthetic read*, not arbitrary
+      // generated funcs with writes/OS calls or other side effects.
+      CpuContext candidate=static_cast<const CpuContext&>(t.cpu);
+      MemoryInline::ResetError();
+      func_80001000(&candidate);
+      const uint32_t memoryError=MemoryInline::Fault();
+      if(memoryError) {
+        t.error=memoryError;
+        t.retrySafe=MemoryInline::RetrySafe();
+        t.state=FAULT;
+        appendTrace((t.id<<16u)|0x8000u|t.pc);
+        return static_cast<int>(t.id);
+      }
+      static_cast<CpuContext&>(t.cpu)=candidate;
+#else
       func_80001000(static_cast<CpuContext*>(&t.cpu));
+#endif
       ++t.cpu.steps;
       t.cpu.pc=SyntheticCpu::Exit;
       t.regA=t.cpu.gpr[3];
