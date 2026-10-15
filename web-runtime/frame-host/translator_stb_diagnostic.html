@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"></head>
+<body><h1>Public synthetic PowerPC STB→STW test-only Wasm</h1>
+<p>No Nintendo original game or runtime boot.</p><pre id="status">Executing...</pre>
+<script type="module">
+import create from './dist/frame_loop_translated_stb_fixture.mjs';
+import {createFrameHost} from './host.mjs';
+const pre=document.querySelector('#status');
+const ensure=(value,msg)=>{if(!value)throw Error(msg)};
+try{
+ const wasm=await create({locateFile:()=>new URL('./dist/frame_loop_translated_stb_fixture.wasm',import.meta.url).href});
+ const c=(name,...args)=>{const f=wasm['_nsmbw_'+name];ensure(typeof f==='function','export '+name);return f(...args)};
+ const spawn=(id,a,b,v)=>c('loop_translated_store_spawn',id,0x80005010+id*0x1000,a,b,v,0x81002000+id,0x81003000+id);
+ let raf=0, faults=0;
+ c('loop_reset');
+ const values=[0x123456A1,0xABCDEF12,0];
+ for(let id=1;id<=3;id++){
+  const base=0x80010000+id*0x2000;
+  ensure(spawn(id,id===2?(base+id-1|0x40000000):(base+id-1),base+0x1000,values[id-1])===1,'3 context spawn');
+ }
+ const host=createFrameHost(wasm,{ids:[1,2,3],budget:2,maxFrames:4,onFrame:()=>raf++});
+ const done=await host.start();
+ ensure(done.reason==='completed'&&done.done===3&&done.frames===2,'bounded genuine RAF');
+ for(let id=1;id<=3;id++){
+  const base=0x80010000+id*0x2000;
+  ensure(c('mem_read8',base+id-1)===(values[id-1]&255),'big endian byte');
+  ensure((c('mem_read32',base+0x1000)>>>0)===values[id-1],'late STW');
+ }
+ host.dispose();
+ c('loop_reset');
+ ensure(c('mem_write32',0x80010000,0x11223344)===1,'old memory');
+ ensure(spawn(1,0x80010001,0xCC008000,0xDEADBBA5)===1,'fault spawn');
+ const rejected=createFrameHost(wasm,{ids:[1],budget:1,maxFrames:2,onFrame:()=>raf++});
+ const bad=await rejected.start();
+ ensure(bad.reason==='blocked'&&bad.faulted===1,'typed MMIO fault');
+ ensure(c('loop_guest_error',1)===7,'fail closed device');
+ ensure((c('mem_read32',0x80010000)>>>0)===0x11223344,'late fault old bytes remain');
+ ensure((c('loop_pc',1)>>>0)===0x80001000,'guest PC rollback');
+ ensure(c('interop_device_invoked')===0,'no callback');
+ rejected.dispose();faults++;
+ c('loop_reset');
+ ensure(c('mem_set_page_budget',1)===1,'quota');
+ ensure(spawn(1,0x80010003,0x80011000,0x12345678)===1,'late quota');
+ const blocked=createFrameHost(wasm,{ids:[1],budget:1,maxFrames:2,onFrame:()=>raf++});
+ const q=await blocked.start();
+ ensure(q.reason==='blocked'&&c('loop_guest_error',1)===3,'quota late rollback');
+ ensure(c('mem_pages')===0,'no ghost pages');
+ ensure((c('loop_pc',1)>>>0)===0x80001000,'PC rollback');
+ blocked.dispose();faults++;
+ for(let i=0;i<128;i++){
+  c('loop_reset');
+  ensure(c('mem_set_page_budget',2)===1,'reset budget');
+  ensure(spawn(1,0x80010003,0x80011000,i)===1,'iteration spawn');
+  const run=createFrameHost(wasm,{ids:[1],budget:1,maxFrames:2,onFrame:()=>raf++});
+  const outcome=await run.start();
+  ensure(outcome.reason==='completed'&&outcome.frames===1,'128 RAF runs');
+  ensure(c('mem_read8',0x80010003)===(i&255),'stb result per run');
+  ensure(c('mem_read32',0x80011000)===i,'stw result per run');
+  run.dispose();
+ }
+ c('loop_reset');ensure(c('mem_pages')===0,'final zero pages');
+ const result={status:'pass',actualWasm:true,contexts:3,raf,stressCycles:128,
+  faults,rollback:true,bigEndian:true,finalPages:0,warning:'Test-only public STB+STW+BLR'};
+ window.__phase8Stb=result;pre.textContent=JSON.stringify(result,null,2);
+}catch(err){const result={status:'fail',error:String(err?.stack||err)};
+ window.__phase8Stb=result;pre.textContent=JSON.stringify(result,null,2);}
+</script></body></html>

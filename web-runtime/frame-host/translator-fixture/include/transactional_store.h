@@ -61,6 +61,32 @@ inline uint32_t FlatRead32(uint32_t guest) {
  }
  return word;
 }
+#ifdef NSMB_PHASE8_SUBWORD_FIXTURE
+// PPC big-endian STB: in a checked 32-bit journal, update precisely one
+// byte lane. No host pointer, device access or early guest RAM mutation.
+inline void FlatWrite8(uint32_t guest,uint8_t value) {
+ if(errorCode)return;
+ const uint32_t aligned=guest&~3u;
+ if(!ordinaryRam(aligned)){errorCode=7;retrySafe=0;return;}
+ const uint32_t shift=(3u-(guest&3u))*8u;
+ const uint32_t mask=0xFFu<<shift;
+ const uint32_t phys=canonical(aligned);
+ for(uint32_t i=0;i<n;++i)if(canonical(writes[i].address)==phys) {
+   writes[i].value=(writes[i].value&~mask)|(static_cast<uint32_t>(value)<<shift);
+   return;
+ }
+ if(n>=2){errorCode=7;retrySafe=0;return;}
+ const uint32_t original=nsmbw_interop_read32(aligned);
+ const uint32_t status=nsmbw_interop_status();
+ if(status) {
+   errorCode=status;
+   retrySafe=0;
+   return;
+ }
+ writes[n++]={aligned,original,
+   (original&~mask)|(static_cast<uint32_t>(value)<<shift)};
+}
+#endif
 inline bool Commit() {
  if(errorCode)return false;
  if(n==0)return true;
