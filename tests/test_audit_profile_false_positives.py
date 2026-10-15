@@ -98,6 +98,36 @@ class CompatibilityNegativeRegressionTests(unittest.TestCase):
                          "Hash alone cannot establish function coverage")
         self.assertNotEqual(status, 0)
 
+    def test_noninteger_and_negative_quality_fields_are_not_verified(self):
+        data = fake_dol()
+        for bad in (True, -1, "0", None, 0.0):
+            with self.subTest(bad=bad):
+                quality = dict(GOOD_QUALITY)
+                quality["unsupportedInstructionCount"] = bad
+                report, code = analyze(
+                    data, profile(data), "80004004 a", None,
+                    metadata(0x80004004, quality=quality))
+                self.assertFalse(report["strict_compatible"])
+                self.assertFalse(report["translation"]["quality_verified"])
+                self.assertNotEqual(code, 0)
+
+    def test_metadata_only_is_not_full_map_coverage(self):
+        data = fake_dol()
+        report, status = analyze(
+            data, profile(data), None, None,
+            metadata(0x80004004, quality=GOOD_QUALITY))
+        self.assertFalse(report["strict_compatible"])
+        self.assertFalse(report["coverage_evidence_complete"])
+        self.assertNotEqual(status, 0)
+
+    def test_repeated_map_entries_fail_closed(self):
+        data = fake_dol()
+        report, status = analyze(
+            data, profile(data), "80004004 a\n80004004 b\n", None,
+            metadata(0x80004004, quality=GOOD_QUALITY))
+        self.assertFalse(report["strict_compatible"])
+        self.assertNotEqual(status, 0)
+
     def test_complete_synthetic_inputs_are_eligible_for_static_coverage(self):
         data = fake_dol()
         report, status = analyze(

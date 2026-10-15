@@ -23,6 +23,16 @@ python scripts/audit_profile.py `
   --translation-metadata 'C:\path\to\private\experiments\translation.json'
 ```
 
+The full static coverage gate is **fail-closed**: both a source function MAP and
+translation metadata must be supplied; every MAP function entry point must be
+present among translated entries; duplicates/unmapped addresses fail; and
+`unsupportedInstructionCount` and `invalidSsaFunctionCount` must both be
+present as nonnegative integer counters with value zero. The translator may
+report extra generated entries not listed in the source MAP, but missing MAP
+entries are incompatible. A correct DOL SHA-256 alone proves binary identity
+only, not translation completeness. The source's original pinned SHA-256 is
+never replaced during a normal strict check.
+
 The default is **strict**. Exit status 2 means the source hash differs from the
 pinned profile (never release with that unchecked); 3 means address coverage,
 entry points or translator quality checks failed; 4 means malformed or

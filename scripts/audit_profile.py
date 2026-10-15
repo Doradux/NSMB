@@ -11,9 +11,11 @@ import re
 import struct
 from pathlib import Path
 
-HASH = re.compile(r"^\s*sha256:\s*([a-fA-F0-9]{64})\s*$", re.M)
-ENTRY = re.compile(r"entry_points:\s*\n\s*-\s*(0x[0-9a-fA-F]+)")
-REGION = re.compile(r"^\s*game_id:\s*(\S+)\s*$", re.M)
+# Parse only the three required scalar paths from a strict indentation-scoped
+# subset of YAML. Do not search for an arbitrary sha256 key in another mapping.
+KEY_VALUE = re.compile(r"^([A-Za-z_][A-Za-z_0-9-]*):[ \t]*(.*)$")
+SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
+ENTRY_VALUE = re.compile(r"^0x[0-9a-fA-F]{1,8}$")
 
 
 def dol_sections(data):
@@ -32,22 +34,74 @@ def dol_sections(data):
             raise ValueError(f"Section {i} exceeds file or overlaps header")
         if addr + size > 0x100000000:
             raise ValueError("DOL section exceeds 32-bit guest address space")
-        sections.append(dict(start=addr, end=addr + size, executable=i < 7))
+        sections.append(dict(start=addr, end=addr + size, executable=i < 7,
+                             file_start=offset, file_end=offset + size))
     if not sections:
         raise ValueError("DOL has no sections")
     for i, a in enumerate(sections):
         for b in sections[i + 1:]:
             if a["start"] < b["end"] and b["start"] < a["end"]:
                 raise ValueError("DOL virtual address ranges overlap")
+            if a["file_start"] < b["file_end"] and b["file_start"] < a["file_end"]:
+                raise ValueError("DOL file image ranges overlap")
     return dict(entry=entry, bss=bss, bss_size=bss_size, sections=sections)
 
 
 def profile_info(text):
-    digest, entry, region = HASH.search(text), ENTRY.search(text), REGION.search(text)
-    if not digest or not entry:
-        raise ValueError("Missing DOL SHA-256 or entry point in profile")
-    return dict(expected_sha256=digest[1].lower(), entry=int(entry[1], 16),
-                game_id=region[1] if region else None)
+    """Read explicit inputs.dol.sha256 and translation.entry_points from YAML.
+
+    Deliberately supports only indentation-based plain mapping/scalar syntax
+    needed by the upstream profile. Aliases, tags and complex YAML constructs
+    are NOT interpreted; relevant values must be plain unquoted scalars.
+    Duplicate relevant paths are rejected instead of choosing a first match.
+    """
+    stack = []
+    seen = {}
+    wanted = {("inputs", "dol", "sha256"),
+              ("project", "game_id")}
+    entry_path = ("translation", "entry_points")
+    for number, raw in enumerate(text.splitlines(), 1):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if "\t" in raw[:len(raw) - len(raw.lstrip())]:
+            raise ValueError(f"Tabs in profile indentation on line {number}")
+        body = raw[indent:]
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        parents = tuple(name for _, name in stack)
+        if body.startswith("- "):
+            if parents == entry_path and "entry" not in seen:
+                value = body[2:].split(" #", 1)[0].strip()
+                if not ENTRY_VALUE.fullmatch(value):
+                    raise ValueError("Invalid translation entry point")
+                seen["entry"] = int(value, 16)
+            continue
+        match = KEY_VALUE.fullmatch(body)
+        if not match:
+            # Reject YAML syntax that could redefine a relevant subtree.
+            if parents in (("inputs",), ("inputs", "dol"), entry_path):
+                raise ValueError(f"Unsupported profile syntax on line {number}")
+            continue
+        key, value = match.groups()
+        path = parents + (key,)
+        value = value.split(" #", 1)[0].strip()
+        if path in wanted:
+            if path in seen:
+                raise ValueError(f"Duplicate profile key: {'.'.join(path)}")
+            if not value or value.startswith(("!", "&", "*", "{", "[")):
+                raise ValueError(f"Invalid profile scalar: {'.'.join(path)}")
+            seen[path] = value
+        if not value:
+            stack.append((indent, key))
+    digest = seen.get(("inputs", "dol", "sha256"))
+    entry = seen.get("entry")
+    if not digest or entry is None:
+        raise ValueError("Missing explicit DOL SHA-256 or entry point in profile")
+    if not SHA256.fullmatch(digest):
+        raise ValueError("Invalid inputs.dol.sha256 value")
+    return dict(expected_sha256=digest.lower(), entry=entry,
+                game_id=seen.get(("project", "game_id")))
 
 
 def rel_sections(text):
@@ -114,25 +168,55 @@ def analyze(dol_data, profile, map_text=None, rel_text=None, metadata_text=None)
                   dol_executable_sections=sum(s["executable"] for s in dol),
                   rel_executable_sections=len(rel))
     invalid = not report["entry_matches_profile"] or not report["entry_executable"]
+    # Full static coverage requires BOTH function MAP and translator metadata.
+    # A correct DOL checksum by itself is an identity check, never a full audit.
+    evidence_complete = map_text is not None and metadata_text is not None
+    report["coverage_evidence_complete"] = evidence_complete
+    map_addresses = None
     if map_text is not None:
-        report["function_map"] = classify(read_map(map_text), dol, rel)
+        map_addresses = read_map(map_text)
+        report["function_map"] = classify(map_addresses, dol, rel)
         invalid |= bool(report["function_map"]["counts"]["unmapped"])
+        if not map_addresses or len(map_addresses) != len(set(map_addresses)):
+            invalid = True
     if metadata_text is not None:
         meta = json.loads(metadata_text)
+        if not isinstance(meta, dict):
+            raise ValueError("Translation metadata must be an object")
         entries = meta.get("functions")
         if not isinstance(entries, list):
             raise ValueError("Translation metadata missing functions list")
         addrs = [int(f["entryPoint"], 0) if isinstance(f["entryPoint"], str)
                  else int(f["entryPoint"]) for f in entries]
         summary = classify(addrs, dol, rel)
-        summary.update(total=len(addrs), unique=len(set(addrs)), quality=meta.get("quality", {}))
+        quality = meta.get("quality")
+        counters = ("unsupportedInstructionCount", "invalidSsaFunctionCount")
+        quality_verified = isinstance(quality, dict) and all(
+            type(quality.get(key)) is int and quality[key] >= 0 for key in counters
+        )
+        # Missing counters are not a zero defect count.
+        summary.update(total=len(addrs), unique=len(set(addrs)),
+                       quality=quality, quality_verified=quality_verified)
         report["translation"] = summary
+        invalid |= not quality_verified
+        if quality_verified:
+            invalid |= any(quality[k] != 0 for k in counters)
         invalid |= bool(summary["counts"]["unmapped"]) or summary["total"] != summary["unique"]
-        invalid |= any(summary["quality"].get(k, 0) != 0 for k in
-                       ("unsupportedInstructionCount", "invalidSsaFunctionCount"))
-    report["strict_compatible"] = match and not invalid
-    report["warning"] = "Address coverage is NOT proof of valid runtime hooks, ABI, boot or gameplay."
-    return report, (3 if invalid else 2 if not match else 0)
+        invalid |= not addrs
+        if map_addresses is not None:
+            # Map entries must have an actual translated function at the exact
+            # entry address, not merely lie inside a broad executable section.
+            missing = sorted(set(map_addresses) - set(addrs))
+            report["function_map"]["missing_translation_count"] = len(missing)
+            report["function_map"]["missing_translation_sample"] = [
+                f"0x{addr:08X}" for addr in missing[:10]
+            ]
+            invalid |= bool(missing)
+    report["strict_compatible"] = match and evidence_complete and not invalid
+    report["warning"] = ("Full static coverage is NOT proof of valid runtime "
+                         "hooks, ABI, boot or gameplay.")
+    return report, (3 if invalid or (evidence_complete is False and match)
+                    else 2 if not match else 0)
 
 
 def main():
