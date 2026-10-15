@@ -38,7 +38,19 @@ uint32_t cursor=0, traceCount=0, traceStart=0, traceDropped=0, lastError=0;
 // W04 cached/uncached addresses are aliases of the SAME physical guest bytes.
 // Preflight all CPU guest memory reservations before accepting new contexts.
 // uint64 arithmetic avoids overflow when comparing 32-bit guest ranges.
+bool guestOrdinaryRam(uint32_t addr,uint32_t size) {
+  if((addr&0xC0000000u)==0x40000000u)return false;
+  const uint64_t begin=static_cast<uint64_t>(addr&0x3FFFFFFFu);
+  const uint64_t end=begin+size;
+  return end<=0x01800000ull ||
+         (begin>=0x10000000ull && end<=0x18000000ull);
+}
 bool guestRegionsOverlap(uint32_t addrA,uint32_t lenA,uint32_t addrB,uint32_t lenB) {
+  // Exclusive range reservations apply to W04 MEM1/MEM2 RAM ONLY.
+  // MMIO/GX is a device operation: multiple guests may address the SAME
+  // register/FIFO, with failures handled by W07 per guest, not preflight.
+  if(!guestOrdinaryRam(addrA,lenA) || !guestOrdinaryRam(addrB,lenB))
+    return false;
   const uint64_t a=static_cast<uint64_t>(addrA&0x3FFFFFFFu);
   const uint64_t b=static_cast<uint64_t>(addrB&0x3FFFFFFFu);
   return a<b+lenB && b<a+lenA;
