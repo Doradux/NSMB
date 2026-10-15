@@ -1,10 +1,11 @@
 // Deterministic, HOST-SUPPLIED synthetic virtual ticks. No Date/performance,
 // no polling or real OS timebase. Only low 32 bits stored in checked Wii RAM.
 // Not the Nintendo OSGetTick/OSGetTime 64-bit ABI.
-// Single time authority per actual Emscripten module. Guest aliases share RAM,
-// so a second clock with an independent epoch could regress guest-visible ticks.
-// Ownership lasts until the Wasm module is discarded (WeakSet is GC-safe).
-const CLOCK_OWNERS=new WeakSet();
+// One authority on the Wasm MODULE OBJECT, rather than in this JS module:
+// distinct ESM URL imports (?v=1 vs ?v=2) evaluate their own lexical state.
+// Symbol.for uses the realm-wide registry; a nonconfigurable own property
+// prevents stale owners even when a second ESM instance imports this file.
+const CLOCK_OWNER=Symbol.for('nsmbw.runtime.synthetic.tick.owner.v1');
 const MAX64=(1n<<64n)-1n;
 const MAX_STEP=60750000n; // diagnostic guard: at most 1 virtual second per advance
 const uint64=(v,name)=>{
@@ -19,8 +20,14 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
   const status=module?._nsmbw_services_tick_status;
   if(typeof store!=='function'||typeof status!=='function')
     throw new TypeError('MISSING_CHECKED_TICK_SERVICE');
-  if(CLOCK_OWNERS.has(module))throw new Error('TICK_CLOCK_ALREADY_OWNED');
-  CLOCK_OWNERS.add(module); // no native side effect occurs during registration
+  if(Object.prototype.hasOwnProperty.call(module,CLOCK_OWNER))
+    throw new Error('TICK_CLOCK_ALREADY_OWNED');
+  try {
+    Object.defineProperty(module,CLOCK_OWNER,{value:true,enumerable:false,
+      writable:false,configurable:false});
+  } catch { throw new Error('TICK_CLOCK_REGISTRATION_FAILED'); }
+  // Ownership is permanent for this Wasm object; a new epoch requires
+  // an audited module-wide reset, not a competing JS clock.
   let last=initial;
   let busy=false;
   function publish(candidate) {
@@ -50,7 +57,20 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
       if(delta>MAX64-last)throw new RangeError('TICK_OVERFLOW');
       return publish(last+delta);
     },
-    // Only resets this host adapter's bookkeeping, NOT module-wide guest RAM.
-    reset(value=0n){uint64(value,'TICK');if(busy)throw Error('REENTRANT_TICK_SERVICE');last=value;}
+    // A rewind requires the guest runtime to be demonstrably empty AFTER a
+    // module-wide reset. Never secretly reset guest RAM or guest CPU contexts.
+    // Pages alone are insufficient: check every W03 context-state counter.
+    reset(value=0n){
+      uint64(value,'TICK');
+      if(busy)throw Error('REENTRANT_TICK_SERVICE');
+      if(value<last){
+        const empty=['_nsmbw_mem_pages','_nsmbw_loop_ready','_nsmbw_loop_paused',
+          '_nsmbw_loop_done','_nsmbw_loop_faulted','_nsmbw_loop_cancelled',
+          '_nsmbw_loop_trace_length'];
+        if(empty.some(n=>typeof module[n]!=='function'||module[n]()!==0))
+          throw new Error('TICK_GUEST_EPOCH_NOT_RESET');
+      }
+      last=value;
+    }
   });
 }

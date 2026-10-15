@@ -145,3 +145,45 @@ test('RED-first: one canonical clock owner per Wasm, including cached/uncached a
  const other=await fresh(), independent=createSyntheticTickClock(other);
  assert.equal(independent.publish(100n).written,true,'different Wasm module has independent clock');
 });
+
+test('phase6 RED: URL-distinct JS ESM evaluations cannot own same Wasm tick service',async()=>{
+ const m=await fresh();
+ const a=(await import(new URL('../tick_host.mjs?phase6=A',import.meta.url))).createSyntheticTickClock;
+ const b=(await import(new URL('../tick_host.mjs?phase6=B',import.meta.url))).createSyntheticTickClock;
+ const owner=a(m,{address:0x80008000});
+ assert.throws(()=>b(m,{address:0xC0008000}),/TICK_CLOCK_ALREADY_OWNED/);
+ assert.equal(owner.publish(200n).written,true);
+ assert.equal(m._nsmbw_mem_read32(0xC0008000)>>>0,200);
+});
+test('phase6 RED: host-only reset cannot rewind live shared RAM; module-wide reset permits fresh epoch',async()=>{
+ const m=await fresh(),owner=createSyntheticTickClock(m);
+ assert.equal(owner.publish(200n).written,true);
+ assert.throws(()=>owner.reset(0n),/TICK_GUEST_EPOCH_NOT_RESET/);
+ assert.equal(owner.ticks,200n);
+ assert.equal(m._nsmbw_mem_read32(0xC0008000),200);
+ assert.throws(()=>owner.publish(100n),/TICK_REGRESSION/);
+ m._nsmbw_loop_reset();
+ assert.equal(m._nsmbw_mem_pages(),0);
+ owner.reset(0n);
+ assert.equal(owner.publish(100n).written,true);
+ assert.equal(m._nsmbw_mem_read32(0x80008000),100);
+});
+
+test('phase6: a nonextensible Wasm facade fails closed and cannot claim an unrecorded owner',async()=>{
+ const m=await fresh();
+ Object.preventExtensions(m);
+ assert.throws(()=>createSyntheticTickClock(m),/TICK_CLOCK_REGISTRATION_FAILED/);
+ assert.equal(m._nsmbw_mem_pages(),0);
+ assert.equal(m._nsmbw_loop_ready(),0);
+});
+test('phase6: guest clock ownership descriptor cannot be erased or replaced',async()=>{
+ const m=await fresh(),c=createSyntheticTickClock(m);
+ const key=Symbol.for('nsmbw.runtime.synthetic.tick.owner.v1');
+ const desc=Object.getOwnPropertyDescriptor(m,key);
+ assert.equal(desc?.configurable,false);
+ assert.equal(desc?.writable,false);
+ assert.equal(desc?.enumerable,false);
+ assert.equal(c.publish(200n).written,true);
+ assert.equal(Reflect.defineProperty(m,key,{value:false}),false);
+ assert.equal(m._nsmbw_mem_read32(0xC0008000),200);
+});

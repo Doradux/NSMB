@@ -15,6 +15,14 @@ try{
    preventedDuplicate=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
  }
  ensure(preventedDuplicate,'DUPLICATE_CLOCK_OWNER_ALIAS');
+ // URL-fragment gives a second ESM evaluation while HTTP serves the same
+ // allowlisted file. Ownership must live on the shared Wasm instance.
+ const cloned=(await import('/tick_host.mjs#phase6-second-copy')).createSyntheticTickClock;
+ let preventedUrlClone=false;
+ try {cloned(m,{address:0xC0008000})} catch(e) {
+   preventedUrlClone=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
+ }
+ ensure(preventedUrlClone,'DUPLICATE_ESM_CLOCK_OWNER');
  ensure(clock.advance(1n).low32===0xFFFFFFFF,'PRE_WRAP');
  let status=clock.advance(1n);
  ensure(status.written&&status.low32===0&&status.rolledOver,'32BIT_WRAP');
@@ -28,6 +36,10 @@ try{
   ensure(m._nsmbw_loop_state(i+1)===3,'CPU_DONE');
   ensure(m._nsmbw_mem_read32(0x80009000+i*0x1000)===61+i,'CPU_GUEST_TICKS');
  }
+ let blockedHostRewind=false;
+ try{clock.reset(0n)}catch(e){blockedHostRewind=String(e.message).includes('TICK_GUEST_EPOCH_NOT_RESET')}
+ ensure(blockedHostRewind,'HOST_ONLY_CLOCK_REWIND_ALLOWED');
+ ensure((m._nsmbw_mem_read32(0xC0008000)>>>0)===61,'FAILED_REWIND_CHANGED_RAM');
  m._nsmbw_loop_reset();clock.reset();ensure(m._nsmbw_mem_set_page_budget(0)===1,'QUOTA_SETUP');
  const denied=clock.advance(61n);
  ensure(!denied.written&&denied.status===3&&clock.ticks===0n&&m._nsmbw_mem_pages()===0,'QUOTA_ROLLBACK');
