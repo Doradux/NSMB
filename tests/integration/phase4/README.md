@@ -151,3 +151,29 @@ stackTop 0x80004010 overwrite the input packet at 0x80004000.
 His formal review is CHANGES REQUESTED. Require guest-physical alias
 and cross-context stack overlap rejection before merge; Peach will test
 the next CLEAN Luigi SHA and the exact CPU ABI.
+
+## Update — Luigi first synthetic CPU SHA 937a394
+
+Peach checked out exact 937a394 into a NEW clean detached worktree,
+independently rebuilt frame_loop normal, typed fixture and Asyncify Wasm,
+and tested with Toad independently fixed 022d6d9 joined input:
+first 13/13 combined Node+true headless Chrome/320px tests GREEN.
+This proves the ordinary C++ synthetic ABI and input path, but not
+guest stack/input safety.
+
+Two NEW independent CPU address-alias adversarial tests in joined.test.mjs
+are RED on 937a394 (8/10 Node PASS, 2 FAIL):
+1. StackTop 0x80004010 has 16-byte caller frame [0x80004000,0x80004010).
+   Guest input pointer 0xC0004000 aliases its start; loop_cpu_spawn
+   incorrectly returns 1 rather than rejecting before corrupting input.
+2. Two different unfinished synthetic CPU contexts use the SAME
+   stackTop 0x80005010; both are accepted and can corrupt saved
+   caller SP/LR. A real synthetic CPU proof must isolate guest stacks.
+
+Both require preflight canonical guest physical alias checks against
+input/output and all active CPU stacks, with zero mutation on rejection.
+Formal W03 Peach 937a394 CHANGES REQUESTED:
+C:\NSMBcowork\reviews\2026-10-15T07-38-32-392Z_Peach_to_W03_af6e380d.md.
+Toad's independent review found overlapping input too. New Luigi exact
+clean SHA must pass both tests, full authored suites, and actual Chrome
+before approval. Do not merge 937a394.
