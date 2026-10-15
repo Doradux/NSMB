@@ -20,7 +20,7 @@ Normal main 9f000e0 frame_loop.wasm SHA:
 
 This test calls external C:\NSMBtools\rea.cmd (6.5.0) using
 the WABT static provider and independently compares typed imported and
-exported entries to WebAssembly.Module.imports/exports, REA subject
+exported entries to WebAssembly.Module.imports/exports (including exact REA function parameter/result type signatures for every retained main export and the import), REA subject
 SHA and normalized artifact SHA versus actual file hash.
 Normal: 66 exports, one env.emscripten_resize_heap import.
 Clock: 70 exports, same import. Added ONLY four tick exports:
