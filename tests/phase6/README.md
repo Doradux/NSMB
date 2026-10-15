@@ -65,3 +65,53 @@ into host Wasm pointers or publish original game contents.
 Independent peer review of this QA branch requested from Luigi and
 Toad. Only Mario merges; no original DOL/REL/RVZ, Nintendo art or
 real proprietary compiled source enters Git.
+
+
+## 15 October: clock f295b84 independently checked with REAL Wasm
+
+Clean detached exact Toad SHA f295b84 worktree:
+C:\NSMBcowork\worktrees\Peach-Phase6-Toad-Review.
+Rebuilt synthetic C++ joined_tick.wasm via local Emscripten.
+Toad author runtime-services tests 44/44 PASS zero skipped incl
+actual Chrome; previous Peach phase5 tick-ownership tests 4/4
+PASS with the prior duplicate ESM and host-only reset regressions.
+
+Independent NEW phase6/clock-facade-ownership.test.mjs 1/2 PASS,
+1 FAIL. This is a separate loophole in the API's accepted structural
+module/provider contract: two independent JavaScript facade objects
+can each bind _nsmbw_services_tick_store32/status/W03 counters to
+the SAME underlying actual Emscripten module and each register its
+own nonconfigurable clock ownership Symbol. clockA publish 200 then
+clockB publish 100 writes visible guest 0x80008000 to 100 without
+legitimate low32 wrap. Neither host operation reports failure.
+A canonical native C++ owner claim or explicit rejection of facades
+before any side effects is required to warrant 'one clock per Wasm'.
+Outside-Git reproducer:
+C:\NSMBcowork\notes\Peach-phase6-clock-facade-repro.mjs
+Formal W07 Peach f295b84 CHANGES REQUESTED:
+C:\NSMBcowork\reviews\2026-10-15T10-04-24-512Z_Peach_to_W07_7cf8bc10.md
+
+Run:
+    $env:NSMB_PHASE6_TICK_ROOT='C:\NSMBcowork\worktrees\Peach-Phase6-Toad-Review'
+    node --test tests/phase6/clock-facade-ownership.test.mjs
+
+## Phase6 actual translated STW test-first engineering suite
+
+tests/phase6/translated-store-atomicity.test.mjs contains four
+independent Node tests intended for the NEXT clean Luigi source
+commit, never a JS-emulated game. They require an actual generated
+synthetic C++ func_80001000(CpuContext*) containing FlatWrite32 and
+an Emscripten test-only frame_loop_translated_store_fixture.wasm.
+Strict requirements: two cache aliases coalesce and write big-endian;
+late quota failure after first successful W04 write restores prior
+RAM word, PC and register set; MMIO second destination never mutates
+earlier RAM or invokes callback; failed guest is isolated from
+successfully dispatched independent guest; 128 real reset/reap cycles.
+
+Against CURRENT main391e368, these four tests correctly FAIL before
+execution because the actual source-generated STW fixture is not
+present. This is intentionally RED-FIRST rather than a claimed CPU
+regression. Once Luigi publishes a NEW clean exact SHA, rebuild the
+public synthetic PowerPC with actual installed C# Translator.Cli,
+inspect emitted C++ and repeat four tests and author true Chrome
+suite before approving. No changes made to Luigi's dirty worktree.
