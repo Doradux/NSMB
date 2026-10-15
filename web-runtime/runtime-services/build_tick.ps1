@@ -16,6 +16,7 @@ $sources=@(
  (Join-Path $runtime 'interop\device_policy.cpp'),
  (Join-Path $runtime 'runtime-services\input_snapshot.cpp'),
  (Join-Path $runtime 'runtime-services\tick_snapshot.cpp'),
+ (Join-Path $runtime 'runtime-services\time64_cpu.cpp'),
  (Join-Path $runtime 'frame-host\guest_cpu.cpp'),
  # Keep exact CURRENT W03 linker source parity: guest_cpu references the
  # self-authored public scalar from translator_abi_fixture.cpp.

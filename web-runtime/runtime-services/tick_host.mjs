@@ -61,9 +61,42 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
           (candidate>>32n)!==(previous>>32n)});
     } finally {busy=false;}
   }
+  // One checked RAM commit and one ACTUAL CpuContext* call happen in C++.
+  // No JS-only pseudo-register pair and no guest CPU state commit on quota/MMIO.
+  function publishCpu(slot,candidate) {
+    uint64(candidate,'TICK');
+    if(candidate<last)throw new RangeError('TICK_REGRESSION');
+    if(!Number.isInteger(slot)||slot<0||slot>2)
+      throw new RangeError('INVALID_CPU_SLOT');
+    if(busy)throw new Error('REENTRANT_TICK_SERVICE');
+    const call=module?._nsmbw_services_time64_publish;
+    const status=module?._nsmbw_services_time64_status;
+    const reg=module?._nsmbw_services_time64_gpr;
+    if(typeof call!=='function'||typeof status!=='function'||typeof reg!=='function')
+      throw new TypeError('MISSING_TIME64_CPU_ABI');
+    busy=true;
+    try {
+      const previous=last;
+      const high32=Number(candidate>>32n),low32=Number(candidate&0xFFFFFFFFn);
+      const ok=call(slot,address,high32,low32)===1;
+      const code=status();
+      if(ok&&code===0)last=candidate;
+      return Object.freeze({written:ok&&code===0,status:code,high32,low32,
+        elapsedTicks:last,rolledOver:ok&&code===0 &&
+          (candidate>>32n)!==(previous>>32n),
+        reg3:reg(slot,3)>>>0,reg4:reg(slot,4)>>>0});
+    } finally {busy=false;}
+  }
   return Object.freeze({
     get ticks(){return last;},
     publish,
+    publishCpu,
+    advanceCpu(slot,delta=1n) {
+      uint64(delta,'TICK_STEP');
+      if(delta>MAX_STEP)throw new RangeError('TICK_STEP_TOO_LARGE');
+      if(delta>MAX64-last)throw new RangeError('TICK_OVERFLOW');
+      return publishCpu(slot,last+delta);
+    },
     advance(delta=1n) {
       uint64(delta,'TICK_STEP');
       if(delta>MAX_STEP)throw new RangeError('TICK_STEP_TOO_LARGE');
@@ -81,6 +114,11 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
           '_nsmbw_loop_done','_nsmbw_loop_faulted','_nsmbw_loop_cancelled',
           '_nsmbw_loop_trace_length'];
         if(empty.some(n=>typeof module[n]!=='function'||module[n]()!==0))
+          throw new Error('TICK_GUEST_EPOCH_NOT_RESET');
+        // The ABI sidecar owns three REAL CpuContext structs. Rewind must
+        // reset their native high/low registers only after full W03/W04 reset.
+        const nativeReset=module?._nsmbw_services_time64_reset;
+        if(typeof nativeReset==='function' && nativeReset()!==1)
           throw new Error('TICK_GUEST_EPOCH_NOT_RESET');
       }
       last=value;
