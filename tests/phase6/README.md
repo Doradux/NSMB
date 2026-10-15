@@ -178,3 +178,35 @@ authentic Nintendo code or arbitrary imported native operations.
 Do not approve until corrected SHA passes 5/5 independent Node and
 1/1 independent true Chrome with ghostFailures0, all authored tests,
 and independent peer review.
+
+
+## Corrected Luigi STORE ABI ed6170f — independently APPROVED synthetic only
+
+Exact CLEAN detached SHA ed6170f:
+C:\NSMBcowork\worktrees\Peach-Phase6-Luigi-FixReview,
+independent public 280-byte fake DOL generation → actual upstream
+precompiled Translator.Cli .NET 8 → unedited generated CpuContext*
+C++ two STW+inlined BL/BLR → Emscripten compiled one synthetic Wasm.
+Independently reviewed test-only guest_memory.cpp
+nsmbw_mem_atomic_pair_write32 which checks BOTH sparse page quota
+requirements before any mutation, stages both new pages as unique_ptr,
+commits only when all allocations are successful, and never routes
+unsupported MMIO through native callback. Test-only #ifdef prevents
+this proof from becoming a generic public Wii memory API.
+
+Full frame-host and Phase3 authored tests **68/68 PASS ZERO skips**
+including true Chrome and typed W07 regressions. Peach external actual
+Wasm translated-store-atomicity.test.mjs **5/5 PASS**; formerly red
+two-NEW-page quota failure now returns mem_pages0 and permits unrelated
+page creation with unchanged budget. Independent Chrome 320px
+translated-store-browser.test.mjs **1/1 PASS ZERO skips** with
+128 real RAFs, 32 valid STW writes, 32 existing-page quota faults,
+32 denied MMIO outputs, and 32 previously leaky two-new-page
+transactions; ghostFailures0, no test/mock or original file exposed.
+
+Formal W03 Peach ed6170f APPROVED strictly bounded synthetic ABI:
+C:\NSMBcowork\reviews\2026-10-15T10-20-07-885Z_Peach_to_W03_46d8fc1f.md
+Only Mario merges main after his own source/provenance gates.
+NO original Nintendo DOL/REL/code, no real game boot, no real Wii
+OS/HLE, dynamic generic translated stores, FPR, or native pointer
+ABI is supported by this approval.
