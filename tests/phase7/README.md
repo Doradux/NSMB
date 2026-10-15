@@ -95,3 +95,68 @@ NSMB_W03_HOST_ROOT resolves real reviewed worktree.
 Request Luigi and Toad critical independent review of exact Peach
 QA commit; only Mario integrates. Report synthetic diagnostic, NOT
 playable authentic NSMB Wii.
+
+
+## Phase7 NEW clean Toad 2af7bd9 — independent synthetic APPROVAL
+
+Clean detached exact 2af7bd9 at Peach-Phase7-Toad-Review;
+recompiled actual public C++ Emscripten joined_tick.wasm.
+Native tick_snapshot.cpp shares one irreversible owner claim across
+normal JS adapters, ESM query URL duplicates, and multiple structural
+JS facades of the SAME native Wasm module. Exact host control
+request is NOT a Wii guest address; it cannot allocate checked RAM
+or invoke MMIO/device callback. Native owner persists despite W03
+reset; independent WebAssembly module instances remain independent.
+Recomputed tests:
+- Author runtime-services real Node+Chromium 48/48 PASS, zero skips.
+- Prior Peach old clock4/4 + external facade2/2 PASS actual Wasm.
+- NEW independent clock-native-claim.test.mjs 3/3 PASS: fake magic,
+  direct duplicate native claim, raw adapter claim after reset,
+  two real independent Wasm instances and alias isolation.
+- Host+interop regression 64/64 PASS zero skips incl real Chrome.
+
+Formal W07 Peach APPROVED strict source-only synthetic clock:
+C:\NSMBcowork\reviews\2026-10-15T12-21-15-659Z_Peach_to_W07_de8250b5.md
+Still NO authentic Nintendo OSGetTime/IRQ/device hardware ABI,
+untrusted JavaScript sandbox, or original-game boot.
+
+Run additional reviewer tests on NEW Toad SHA:
+    $env:NSMB_PHASE7_TICK_ROOT='C:\NSMBcowork\worktrees\Peach-Phase7-Toad-Review'
+    node --test tests/phase7/clock-native-claim.test.mjs
+
+## Phase7 NEW clean Luigi 4f22510 — independent synthetic APPROVAL
+
+Clean detached exact 4f22510 at Peach-Phase7-Luigi-Review;
+regenerated NEW 272-byte four-op invented PowerPC DOL via
+actual PUBLIC precompiled upstream .NET8 Translator.Cli and built
+unedited generated C++ with authorized Emscripten Wasm.
+Generated order STW r3,0(r4); LWZ r5,0(r4); STW r3,0(r6); BLR.
+FlatRead32 forwards latest already staged *physical* guest word
+from narrow two-entry journal even when cached/uncached addresses
+alias. Errors deny memory/device side effects and do not commit
+CpuContext PC/GPR5, W04 atomic pair preflights both new pages.
+Tests:
+- Author real Node+Chromium 10/10 PASS zero skips incl 128 RAF.
+- Independent NEW readwrite-adversarial.test.mjs 3/3 PASS on actual
+  compiled Wasm: MEM2→MEM1 staging and endian, zero-safe GPR
+  rollback for 4 hostile MMIO/unmapped/unaligned/overflow second
+  addresses, and exact last aligned MEM1 word 0x817FFFFC alias
+  with two new pages.
+- Entire frame-host+Phase3 78/78 PASS zero skips incl REAL Chrome.
+
+Formal W03 Peach APPROVED for the EXACT FOUR SYNTHETIC 32-bit
+instruction pattern, not generic Wii translation:
+C:\NSMBcowork\reviews\2026-10-15T12-21-20-112Z_Peach_to_W03_2b25f34c.md
+No original commercial code, Wii HLE/GX/IOS or gameplay.
+
+Run additional independent peer tests:
+    $env:NSMB_PHASE7_READWRITE_ROOT='C:\NSMBcowork\worktrees\Peach-Phase7-Luigi-Review'
+    node --test tests/phase7/readwrite-adversarial.test.mjs
+
+The earlier readwrite-negative.test.mjs remains a HISTORICAL
+fail-closed compiler oracle for OLD 02378c5 only; it is expected to
+stop passing if run against 4f22510 because the new audited narrow
+FlatRead32 is now intentionally implemented. Always bind each suite
+to the intended exact clean review candidate SHA; never silently
+relax or delete old regression evidence. Peer-review these two new
+test files separately from owner implementation before Mario merge.
