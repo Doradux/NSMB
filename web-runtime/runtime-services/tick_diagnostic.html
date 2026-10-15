@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Phase5 synthetic timebase</title></head><body>
+<h1>Phase5 deterministic host ticks → one checked guest RAM → W03 CPU</h1>
+<pre id="status" data-state="pending">Loading real WebAssembly</pre>
+<script type="module">
+import create from '/dist/joined_tick.mjs';
+import {createSyntheticTickClock} from '/tick_host.mjs';
+const out=document.getElementById('status');
+const ensure=(p,msg)=>{if(!p)throw Error(msg)};
+try{
+ const m=await create({locateFile:()=>'/dist/joined_tick.wasm'});
+ const currentCpuAbi=['loop_cpu_spawn_abi','loop_cpu_fpscr','loop_cpu_gqr','loop_cpu_abi_layout'];
+ for(const name of currentCpuAbi)ensure(typeof m['_nsmbw_'+name]==='function',
+   'MISSING_CURRENT_W03_CPU_ABI_'+name);
+ m._nsmbw_loop_reset();
+ const clock=createSyntheticTickClock(m,{initial:0xFFFFFFFEn});
+ let preventedDuplicate=false;
+ try{createSyntheticTickClock(m,{address:0xC0008000})}catch(e){
+   preventedDuplicate=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
+ }
+ ensure(preventedDuplicate,'DUPLICATE_CLOCK_OWNER_ALIAS');
+ // URL-fragment gives a second ESM evaluation while HTTP serves the same
+ // allowlisted file. Ownership must live on the shared Wasm instance.
+ const cloned=(await import('/tick_host.mjs#phase6-second-copy')).createSyntheticTickClock;
+ let preventedUrlClone=false;
+ try {cloned(m,{address:0xC0008000})} catch(e) {
+   preventedUrlClone=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
+ }
+ ensure(preventedUrlClone,'DUPLICATE_ESM_CLOCK_OWNER');
+ // A second real Wasm proves that each module has its OWN canonical native
+ // clock claim. Structural wrappers of the SAME module must share the claim.
+ const shared=await create({locateFile:()=>'/dist/joined_tick.wasm'});
+ shared._nsmbw_loop_reset();
+ const names=['_nsmbw_services_tick_store32','_nsmbw_services_tick_status',
+  '_nsmbw_mem_pages','_nsmbw_loop_ready','_nsmbw_loop_paused',
+  '_nsmbw_loop_done','_nsmbw_loop_faulted','_nsmbw_loop_cancelled',
+  '_nsmbw_loop_trace_length'];
+ const facade=()=>Object.fromEntries(names.map(n=>[n,shared[n].bind(shared)]));
+ const facadeOwner=createSyntheticTickClock(facade(),{address:0x80008000});
+ ensure(facadeOwner.publish(200n).written,'FIRST_FACADE_CLOCK_FAILED');
+ let refusedFacade=false;
+ try{cloned(facade(),{address:0xC0008000})}catch(e){
+  refusedFacade=String(e.message).includes('TICK_CLOCK_ALREADY_OWNED');
+ }
+ ensure(refusedFacade,'TWO_FACADES_OWNED_ONE_WASM');
+ ensure(shared._nsmbw_mem_read32(0xC0008000)===200,'FACADE_CHANGED_GUEST_CLOCK');
+ ensure(shared._nsmbw_services_tick_claim()===0,'GUEST_RESET_CLAIM_NOT_PERSISTENT');
+ ensure(clock.advance(1n).low32===0xFFFFFFFF,'PRE_WRAP');
+ let status=clock.advance(1n);
+ ensure(status.written&&status.low32===0&&status.rolledOver,'32BIT_WRAP');
+ ensure((m._nsmbw_mem_read32(0xC0008000)>>>0)===0,'GUEST_ALIAS');
+ clock.advance(61n);
+ for(let i=0;i<3;i++)
+  ensure(m._nsmbw_loop_cpu_spawn(i+1,0x80010000,0x80005010+i*0x1000,
+    0xC0008000,0x80009000+i*0x1000,i)===1,'CPU_SPAWN');
+ ensure(m._nsmbw_loop_frame(33)===33,'CPU_FRAMES');
+ for(let i=0;i<3;i++){
+  ensure(m._nsmbw_loop_state(i+1)===3,'CPU_DONE');
+  ensure(m._nsmbw_mem_read32(0x80009000+i*0x1000)===61+i,'CPU_GUEST_TICKS');
+ }
+ let blockedHostRewind=false;
+ try{clock.reset(0n)}catch(e){blockedHostRewind=String(e.message).includes('TICK_GUEST_EPOCH_NOT_RESET')}
+ ensure(blockedHostRewind,'HOST_ONLY_CLOCK_REWIND_ALLOWED');
+ ensure((m._nsmbw_mem_read32(0xC0008000)>>>0)===61,'FAILED_REWIND_CHANGED_RAM');
+ m._nsmbw_loop_reset();clock.reset();ensure(m._nsmbw_mem_set_page_budget(0)===1,'QUOTA_SETUP');
+ const denied=clock.advance(61n);
+ ensure(!denied.written&&denied.status===3&&clock.ticks===0n&&m._nsmbw_mem_pages()===0,'QUOTA_ROLLBACK');
+ ensure(m._nsmbw_mem_set_page_budget(7)===1,'QUOTA_UP');
+ const began=performance.now();
+ for(let i=0;i<128;i++){
+  m._nsmbw_loop_reset();clock.reset();
+  ensure(clock.publish(BigInt(i)).written,'FRAME_TICK');
+  ensure(m._nsmbw_loop_cpu_spawn(1,0x80010000,0x80005010,
+    0x80008000,0x80009000,1)===1,'FRAME_SPAWN');
+  ensure(m._nsmbw_loop_frame(11)===11,'FRAME_DISPATCH');
+  ensure(m._nsmbw_mem_read32(0x80009000)===i+1,'FRAME_RESULT');
+  ensure(m._nsmbw_mem_pages()===3,'BOUND_PAGES');
+ }
+ const elapsed=performance.now()-began;
+ out.dataset.state='pass';
+ out.textContent='PASS: actual single C++/Wasm W03 CPU reads checked synthetic tick from W04 RAM; 32bit rollover, 3 contexts, quota0, 128 resets and 3-page cap; '+elapsed.toFixed(2)+'ms';
+}catch(e){out.dataset.state='fail';out.textContent='FAIL: '+(e?.message||String(e));console.error(e);}
+</script></body></html>
