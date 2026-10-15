@@ -1,5 +1,8 @@
 #pragma once
 #include <cstdint>
+#ifdef NSMB_PHASE6_TRANSLATED_STORE_FIXTURE
+#include "transactional_store.h"
+#endif
 // Only source-only test fixture with ONE synthetic lwz r3,0(r4).
 // No host pointers, no full MemoryInline, no unsupported writes.
 #ifdef NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE
