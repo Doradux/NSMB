@@ -74,7 +74,7 @@ test('real Chrome runs actual C# translator-emitted C++ compiled into bounded sa
   assert.equal(data.zeroPageGhosts,true);
   assert.equal(data.stressCycles,128);
   assert.equal(data.callbacks,132);
-  
+
   assert.equal(data.finalPages,0);
   assert.deepEqual(nav.errors,[]);
   assert.deepEqual(nav.httpErrors,[]);
