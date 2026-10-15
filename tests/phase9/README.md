@@ -38,3 +38,40 @@ Do not approve W01 before Mario publishes a NEW exact clean SHA.
 Even corrected static pass cannot waive the separately mismatched
 upstream original SMNE01 Rev1 DOL pinned SHA, nor establish
 gameplay/OS/IOS/GX compatibility. Mario controls main merges.
+
+
+## Independent review of Luigi real source-generated STH ef65abb
+
+- Created SEPARATE clean detached review checkout
+  C:\NSMBcowork\worktrees\Peach-Phase9-Luigi-STH-Review,
+  exact published SHA ef65abb. No modifications of Luigi's checkout.
+- Ran actual public precompiled .NET8 Translator.Cli on a newly
+  authored copyright-free 268-byte synthetic PowerPC DOL containing
+  STH r3,0(r4), STW r3,0(r6), BLR, inspected generated C++ with
+  FlatWrite16 THEN FlatWrite32, rebuilt using authorized Emscripten.
+- Checked-in and independent rebuilt real Wasm SHA byte-identical:
+  f68e1cef4f4f991d00e732f2cef139eb6dc54f6231b3dd2b50b16286a58fb102.
+- Author Node+actual Chromium source-generated suite 17/17 PASS,
+  zero skips including 3 contexts, 128 resets, big-endian two
+  halfword lanes, odd addresses rejected, quota0/1, no guest
+  PC/GPR effects on later failure and no device callback replay.
+- NEW reviewer-owned tests/phase9/sth-adversarial.test.mjs 4/4 PASS
+  compiled REAL C++ Wasm: uncached MEM2 lower halfword and independent
+  MEM1 STW big-endian, final physical MEM1 aligned halfword
+  0x817FFFFE, late MMIO second instruction does not commit earlier
+  staged halfword or PC/GPR, first unallocated halfword + full-word
+  STW to same physical guest page alias at quota1 coalesces cleanly.
+- NEW reviewer-owned REA6.5 static typed test
+  tests/phase9/rea-sth-abi.test.mjs 1/1 PASS:
+  WABT verifies source-generated test fixture all 66 original main
+  export signatures preserved and precisely TWO test-only added
+  nsmbw_mem_atomic_pair_write32 / nsmbw_loop_translated_store_spawn.
+  Same env.emscripten_resize_heap import, exact native wasm SHA bound
+  to REA evidence ID
+  ev_ab8089eb0e778bbf0f0b72b27ac22bf4603b312952e699feb84cc1c572b93150.
+- Source-generated fixture is NOT a Wii original ROM/REL/DOL, not
+  arbitrary PPC CPU, does not implement cross-page STH, FPR/GQR,
+  device side effects, OS/IOS/GX/HLE or gameplay.
+- A broad first-pass parallel Chrome stress run had CDP target
+  discovery failure likely from browser resource contention.
+  Re-run with --test-concurrency=1 before formal 100%-suite approval.
