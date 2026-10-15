@@ -33,9 +33,11 @@ New JS helper joined_host_input.mjs:
 - applyJoinedInputFrame(wasm, gamepads, options): one checked store,
   one bounded W03 scheduled guest step and typed result snapshot.
   Default input address 0x80004000, output 0x80009000, guest ID 1,
-  addend 1. Refuses an unreaped guest ID or another runnable context
-  BEFORE writing input, to avoid attributing a different task's work.
-  It does not reset the module or silently auto-retry faults.
+  addend 1. Refuses an unreaped guest ID, another runnable context, or
+  any paused/done/faulted/cancelled slot BEFORE writing input. Such a
+  slot could still own a reference to the shared packet, and overwriting
+  it would corrupt a suspended task. The host must reap all old slots;
+  this one-shot helper never resets the module or auto-retries faults.
 - reapJoinedInputFrame(wasm, guestId): explicit DONE/FAULT/CANCELLED
   slot recycling. nextInputSequence(u8): bounded modulo-256 rollover.
 

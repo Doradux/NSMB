@@ -36,12 +36,16 @@ export function applyJoinedInputFrame(module, gamepads, {
     throw new RangeError('INVALID_GUEST_ADDRESS');
   if(!uint32(addend))throw new RangeError('INVALID_ADDEND');
   if(!Number.isInteger(sequence)||sequence<0||sequence>255)throw new RangeError('INVALID_SEQUENCE');
-  const names=['loop_state','loop_spawn','loop_frame','loop_pc','loop_reg_a','loop_guest_error','loop_retry_safe','loop_ready'];
+  const names=['loop_state','loop_spawn','loop_frame','loop_pc','loop_reg_a','loop_guest_error','loop_retry_safe','loop_ready','loop_paused','loop_done','loop_faulted','loop_cancelled'];
   const f=Object.fromEntries(names.map(n=>[n,exported(module,n)]));
   // This one-shot helper must not silently run a DIFFERENT ready context.
   // General interleaving remains the host scheduler's explicit responsibility.
   if(f.loop_state(guestId)!==0)throw new Error('GUEST_CONTEXT_MUST_BE_REAPED');
   if(f.loop_ready()!==0)throw new Error('OTHER_GUEST_ALREADY_RUNNABLE');
+  // A paused/done/faulted context still owns a guest slot and might retain
+  // a pointer to this input word. Require explicit reaping by the host.
+  if(f.loop_paused()+f.loop_done()+f.loop_faulted()+f.loop_cancelled()!==0)
+    throw new Error('GUEST_CONTEXTS_ALREADY_PRESENT');
   const input=writeSyntheticGamepadSnapshot(module,gamepads,inputAddress,sequence,{deadzone});
   if(!input.written)
     return Object.freeze({input,executed:false,guestId,state:0,pc:0,regA:0,guestError:0,retrySafe:1});
