@@ -35,6 +35,8 @@ extern "C" {
 // Registration only: does not read or write guest memory or invoke a device.
 // Called by the host adapter on initialization. There is no release API,
 // including through nsmbw_loop_reset(), to prevent stale JS alias owners.
+// Only the registered native host time authority may drive CpuContext samples.
+uint32_t EXPORT nsmbw_services_tick_is_claimed() { return tickClaimed ? 1u : 0u; }
 uint32_t EXPORT nsmbw_services_tick_claim() {
     if(tickClaimed) return 0u;
     tickClaimed=true;
