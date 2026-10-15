@@ -3,6 +3,9 @@
 #include <array>
 #include <cstdint>
 #include "guest_cpu.hpp"
+#ifdef NSMB_PHASE5_TRANSLATED_FIXTURE
+extern "C" void func_80001000(CpuContext* ctx);
+#endif
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #define EXPORT EMSCRIPTEN_KEEPALIVE
@@ -121,10 +124,10 @@ int EXPORT nsmbw_loop_cpu_spawn(uint32_t id,uint32_t entry,uint32_t stackTop,
      guestRegionsOverlap(inputGuest,4,outputGuest,4)) {
     lastError=1;return 0;
   }
-  for(const auto& existing:tasks)if(existing.id&&existing.kind==1) {
+  for(const auto& existing:tasks)if(existing.id&&existing.kind!=0) {
     const uint32_t theirStack=existing.cpu.stackTop-16u;
-    const uint32_t theirInput=existing.cpu.gpr[4];
-    const uint32_t theirOutput=existing.cpu.gpr[6];
+    const uint32_t theirInput=existing.cpu.inputGuest;
+    const uint32_t theirOutput=existing.cpu.outputGuest;
     if(guestRegionsOverlap(stackBase,16,theirStack,16) ||
        guestRegionsOverlap(stackBase,16,theirInput,4) ||
        guestRegionsOverlap(stackBase,16,theirOutput,4) ||
@@ -143,6 +146,39 @@ int EXPORT nsmbw_loop_cpu_spawn(uint32_t id,uint32_t entry,uint32_t stackTop,
   }
   lastError=2;return 0;
 }
+// Source-translator ABI-shaped initialization. The actual compiler emits
+// extern "C" void f(CpuContext*), not a direct integer function. These
+// initializer values are per-context, not global persistent Wii state.
+// feature bit0=FPR, bit1=paired-single, bit2=GQR/quantized: explicitly reject
+// until the complete corresponding runtime semantics are implemented.
+int EXPORT nsmbw_loop_cpu_spawn_abi(uint32_t id,uint32_t entry,uint32_t stackTop,
+  uint32_t inputGuest,uint32_t outputGuest,uint32_t salt,
+  uint32_t sda2,uint32_t sda1,uint32_t featureMask) {
+  if(featureMask) {lastError=8;return 0;}
+  if(!nsmbw_loop_cpu_spawn(id,entry,stackTop,inputGuest,outputGuest,salt))
+    return 0;
+  auto* t=find(id);
+  t->cpu.gpr[2]=sda2;
+  t->cpu.gpr[13]=sda1;
+  return 1;
+}
+#ifdef NSMB_PHASE5_TRANSLATED_FIXTURE
+// Test-only: invoke REAL C# translator-generated C++ (2 synthetic PPC
+// instructions) through exact CpuContext* baseline ABI, one host dispatch.
+int EXPORT nsmbw_loop_translated_spawn(uint32_t id,uint32_t stackTop,
+                                     uint32_t initialR3,uint32_t sda2,uint32_t sda1) {
+  // Reuse complete physical guest RAM ownership validation of normal W03.
+  if(!nsmbw_loop_cpu_spawn(id,SyntheticCpu::Entry,stackTop,
+                           0x80004000u,0x80008000u+id*0x1000u,0u))
+    return 0;
+  auto* t=find(id);
+  t->kind=2;
+  t->cpu.pc=0x80001000u;
+  t->cpu.gpr[3]=initialR3;
+  t->cpu.gpr[2]=sda2;t->cpu.gpr[13]=sda1;
+  return 1;
+}
+#endif
 int EXPORT nsmbw_loop_suspend(uint32_t id) {
   lastError=0;auto* t=find(id);
   if(!t||t->state!=READY){lastError=3;return 0;}
@@ -186,6 +222,20 @@ int EXPORT nsmbw_loop_tick() {
     auto& t=tasks[index];
     if(!t.id||t.state!=READY) continue;
     cursor=(index+1)%CAPACITY;
+#ifdef NSMB_PHASE5_TRANSLATED_FIXTURE
+    if(t.kind==2) {
+      // Real C# translator output, not handwritten JS or fake CPU emulation.
+      // This synthetic 2-instruction function has no memory or device calls.
+      func_80001000(static_cast<CpuContext*>(&t.cpu));
+      ++t.cpu.steps;
+      t.cpu.pc=SyntheticCpu::Exit;
+      t.regA=t.cpu.gpr[3];
+      ++t.pc;
+      t.state=DONE;
+      appendTrace((t.id<<16u)|t.pc);
+      return static_cast<int>(t.id);
+    }
+#endif
     if(t.kind==1){
       const auto outcome=SyntheticCpu::step(t.cpu);
       if(!outcome.ok){
@@ -240,15 +290,39 @@ int EXPORT nsmbw_loop_frame(uint32_t budget) {
   return static_cast<int>(budget);
 }
 uint32_t EXPORT nsmbw_loop_state(uint32_t id) {auto*t=find(id);return t?t->state:0;}
-uint32_t EXPORT nsmbw_loop_pc(uint32_t id) {auto*t=find(id);return t?(t->kind==1?t->cpu.pc:t->pc):0;}
-uint32_t EXPORT nsmbw_loop_cpu_steps(uint32_t id) {auto*t=find(id);return t&&t->kind==1?t->cpu.steps:0;}
+uint32_t EXPORT nsmbw_loop_pc(uint32_t id) {auto*t=find(id);return t?(t->kind!=0?t->cpu.pc:t->pc):0;}
+uint32_t EXPORT nsmbw_loop_cpu_steps(uint32_t id) {auto*t=find(id);return t&&t->kind!=0?t->cpu.steps:0;}
 uint32_t EXPORT nsmbw_loop_cpu_gpr(uint32_t id,uint32_t index) {
-  auto*t=find(id);return t&&t->kind==1&&index<32?t->cpu.gpr[index]:0;
+  auto*t=find(id);return t&&t->kind!=0&&index<32?t->cpu.gpr[index]:0;
 }
-uint32_t EXPORT nsmbw_loop_cpu_lr(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.lr:0;}
-uint32_t EXPORT nsmbw_loop_cpu_ctr(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.ctr:0;}
-uint32_t EXPORT nsmbw_loop_cpu_cr(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.cr:0;}
-uint32_t EXPORT nsmbw_loop_cpu_xer(uint32_t id){auto*t=find(id);return t&&t->kind==1?t->cpu.xer:0;}
+uint32_t EXPORT nsmbw_loop_cpu_lr(uint32_t id){auto*t=find(id);return t&&t->kind!=0?t->cpu.lr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_ctr(uint32_t id){auto*t=find(id);return t&&t->kind!=0?t->cpu.ctr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_cr(uint32_t id){auto*t=find(id);return t&&t->kind!=0?t->cpu.cr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_xer(uint32_t id){auto*t=find(id);return t&&t->kind!=0?t->cpu.xer:0;}
+uint32_t EXPORT nsmbw_loop_cpu_fpscr(uint32_t id){auto*t=find(id);return t&&t->kind!=0?t->cpu.fpscr:0;}
+uint32_t EXPORT nsmbw_loop_cpu_gqr(uint32_t id,uint32_t index) {
+  auto*t=find(id);return t&&t->kind!=0&&index<8?t->cpu.gqr[index]:0;
+}
+// Public translator's canonical C++ context: versioned observables for
+// independent test/ABI review. Never expose host pointers into Wasm JS.
+uint32_t EXPORT nsmbw_loop_cpu_abi_layout(uint32_t field) {
+  switch(field) {
+    case 0:return static_cast<uint32_t>(sizeof(CpuContext));
+    case 1:return static_cast<uint32_t>(alignof(CpuContext));
+    case 2:return static_cast<uint32_t>(offsetof(CpuContext,gpr));
+    case 3:return static_cast<uint32_t>(offsetof(CpuContext,cr));
+    case 4:return static_cast<uint32_t>(offsetof(CpuContext,lr));
+    case 5:return static_cast<uint32_t>(offsetof(CpuContext,ctr));
+    case 6:return static_cast<uint32_t>(offsetof(CpuContext,xer));
+    case 7:return static_cast<uint32_t>(offsetof(CpuContext,fpscr));
+    case 8:return static_cast<uint32_t>(offsetof(CpuContext,pc));
+    case 9:return static_cast<uint32_t>(offsetof(CpuContext,fpr));
+    case 10:return static_cast<uint32_t>(offsetof(CpuContext,gqr));
+    case 11:return static_cast<uint32_t>(offsetof(CpuContext,hid0));
+    case 12:return static_cast<uint32_t>(offsetof(CpuContext,msr));
+    default:return UINT32_MAX;
+  }
+}
 uint32_t EXPORT nsmbw_loop_reg_a(uint32_t id) {auto*t=find(id);return t?t->regA:0;}
 uint32_t EXPORT nsmbw_loop_guest_error(uint32_t id) {auto*t=find(id);return t?t->error:0;}
 uint32_t EXPORT nsmbw_loop_retry_safe(uint32_t id) {auto*t=find(id);return t?t->retrySafe:0;}

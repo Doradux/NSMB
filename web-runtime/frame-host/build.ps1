@@ -21,6 +21,7 @@ $source = @(
   # Input service shares the SAME C++ W04 RAM instance; no duplicate Wasm.
   (Join-Path $runtime 'runtime-services\input_snapshot.cpp'),
   (Join-Path $PSScriptRoot 'guest_cpu.cpp'),
+  (Join-Path $PSScriptRoot 'translator_abi_fixture.cpp'),
   (Join-Path $PSScriptRoot 'frame_loop.cpp')
 )
 $opts = @('-std=c++17','-O2','-Wall','-Wextra','-sWASM=1','-sMODULARIZE=1',

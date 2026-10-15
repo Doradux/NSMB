@@ -81,11 +81,38 @@ try{
     assert((call('loop_cpu_gpr',1,1)>>>0)===0x80005010,'no stack leak');
     frameHost.dispose();
   }
+  // Phase 5: generated translator's baseline ABI is void(CpuContext*),
+  // with 464-byte full CPU context layout and per-guest r2/r13 SDA.
+  // No floating or paired-single capabilities may be silently emulated.
+  call('loop_reset');
+  assert(call('loop_cpu_abi_layout',0)===464,'actual C++ CpuContext layout size');
+  assert(call('loop_cpu_abi_layout',9)===152,'FPR slot location');
+  assert(call('loop_cpu_abi_layout',10)===408,'GQR slot location');
+  assert(call('loop_cpu_spawn_abi',1,entry,0x80005010,input,0x80008000,1,
+    0x81002000,0x81003000,1)===0,'unsupported FPR requires fail-closed');
+  assert(call('loop_error')===8,'unsupported feature error');
+  assert(call('loop_ready')===0,'rejected FPR ABI spawned no context');
+  assert(call('services_input_store',input,5,0,0,7)===1,'ABI fixture packet');
+  assert(call('loop_cpu_spawn_abi',1,entry,0x80005010,input,0x80008000,2,
+    0x81002000,0x81003000,0)===1,'ABI-shaped synthetic fixture spawn');
+  const abiHost=createFrameHost(wasm,{ids:[1],budget:2,maxFrames:8});
+  const abiDone=await abiHost.start();
+  assert(abiDone.reason==='completed'&&abiDone.frames===6,'ABI called from actual browser Wasm');
+  assert((call('loop_cpu_gpr',1,2)>>>0)===0x81002000,'r2 SDA2 survives function');
+  assert((call('loop_cpu_gpr',1,13)>>>0)===0x81003000,'r13 SDA1 survives function');
+  assert(call('loop_cpu_gpr',1,3)===14,'C++ void(CpuContext*) changed r3');
+  assert(call('loop_cpu_gpr',1,4)===0,'C++ void(CpuContext*) returned high value in r4');
+  assert((call('loop_cpu_gpr',1,1)>>>0)===0x80005010,'original caller SP restored');
+  assert((call('loop_pc',1)>>>0)===0x8001FFF0,'final return to host LR sentinel');
+  assert(call('mem_read32',0x80008000)===14,'checked memory output from C++ fixture');
+  abiHost.dispose();
   call('loop_reset');
   assert(call('mem_pages')===0,'no guest RAM pages after final reset');
   const data={status:'pass',actualWasm:true,contexts:3,callSteps:11,
     firstFrames:frames,disconnectFrames:11,stressCycles:128,stressFrames,
-    controllerNeutralized:true,finalPages:call('mem_pages'),sameWasm:true,
+    controllerNeutralized:true,abiContextBytes:call('loop_cpu_abi_layout',0),abiSdaVerified:true,
+    abiUnsupportedFprRejected:true,abiSyntheticHostFrames:abiDone.frames,
+    finalPages:call('mem_pages'),sameWasm:true,
     limitation:'Synthetic fixed PPC call ABI, not original Wii code or real controller hardware'};
   window.__nsmbPhase4Cpu=data;status.textContent=JSON.stringify(data,null,2);
 }catch(error){const data={status:'fail',error:String(error?.stack||error)};

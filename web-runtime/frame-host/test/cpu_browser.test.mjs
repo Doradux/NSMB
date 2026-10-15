@@ -73,6 +73,10 @@ test('real Chrome: PPC stack/call/LR + W08 input in SAME checked Wasm over 128 R
   assert.equal(result.stressCycles,128);
   assert.equal(result.stressFrames,128);
   assert.equal(result.finalPages,0);
+  assert.equal(result.abiContextBytes,464,'full translator CpuContext ABI');
+  assert.equal(result.abiSdaVerified,true,'r2/r13 in browser Wasm');
+  assert.equal(result.abiUnsupportedFprRejected,true,'no silent float FPR emulation');
+  assert.equal(result.abiSyntheticHostFrames,6,'r3/r4 C++ ABI-shaped callee');
   assert.deepEqual(nav.errors,[]);
   assert.deepEqual(nav.httpErrors,[]);
   for(const path of ['/private/game.iso','/.git/config','/dist/frame_loop_fixture.wasm']){

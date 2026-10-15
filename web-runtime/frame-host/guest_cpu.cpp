@@ -51,7 +51,8 @@ bool initialize(State& s,uint32_t pc,uint32_t top,uint32_t input,
                 uint32_t result,uint32_t salt) {
   if(pc!=Entry || !ordinaryStack(top) || (input&3u) || (result&3u))return false;
   s=State{};
-  s.pc=Entry;s.lr=Exit;s.ctr=0;s.cr=0;s.xer=0;s.stackTop=top;
+  s.pc=Entry;s.lr=Exit;s.ctr=0;s.cr=0;s.xer=0;
+  s.stackTop=top;s.inputGuest=input;s.outputGuest=result;
   s.gpr[1]=top;s.gpr[2]=InitialSda;s.gpr[3]=0;
   s.gpr[4]=input;s.gpr[5]=salt;s.gpr[6]=result;s.gpr[13]=InitialSda;
   return true;
@@ -79,9 +80,8 @@ Outcome step(State& s) {
     case Entry+12u: { // bl synthetic_callee, LR points at following callsite
       s.lr=Callsite;s.pc=Callee;break;
     }
-    case Callee: { // synthetic C++ callee follows r3 input, r5 salt ABI.
-      const uint32_t packet=s.gpr[3];
-      s.gpr[3]=(packet&255u)+((packet>>24u)&255u)+s.gpr[5];
+    case Callee: { // actual translator function SHAPE: void(CpuContext*).
+      nsmbw_synthetic_public_scalar(static_cast<CpuContext*>(&s));
       s.pc=Callee+4u;break;
     }
     case Callee+4u: { // blr returns through LR.

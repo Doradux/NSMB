@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="icon" href="data:,"><title>Actual source PowerPC translator → C++ → Wasm</title></head>
+<body><h1>Actual C# translator output, public two-op DOL fixture</h1>
+<p>Only source-independent opcodes addi r3,r3,1 and blr; no Nintendo game data.</p>
+<pre id="status">Running actual generated C++ Wasm with bounded host frames...</pre>
+<script type="module">
+import factory from './dist/frame_loop_translated_fixture.mjs';
+import {createFrameHost} from './host.mjs';
+const output=document.querySelector('#status');
+function insist(ok,message){if(!ok)throw Error(message);}
+try{
+ const wasm=await factory({locateFile:()=>new URL('./dist/frame_loop_translated_fixture.wasm',import.meta.url).href});
+ const c=(name,...args)=>{
+   const fn=wasm['_nsmbw_'+name];
+   if(typeof fn!=='function')throw Error('Missing compiled Wasm export '+name);
+   return fn(...args);
+ };
+ c('loop_reset');
+ let frames=0;
+ for(const [id,r3] of [[1,0],[2,7],[3,0xFFFFFFFF]]){
+   insist(c('loop_translated_spawn',id,0x80004010+id*0x1000,r3,
+     0x81002000+id,0x81003000+id)===1,'spawn true translated guest '+id);
+ }
+ const host=createFrameHost(wasm,{ids:[1,2,3],budget:2,maxFrames:3,
+   onFrame:info=>{insist(info.executed<=2,'Wasm frame budget');frames++;}});
+ const end=await host.start();
+ insist(end.reason==='completed'&&end.frames===2&&end.done===3,'3 independent translated executions');
+ insist(frames===2,'two genuine requestAnimationFrame callbacks');
+ for(const [id,r3] of [[1,0],[2,7],[3,0xFFFFFFFF]]){
+   insist((c('loop_cpu_gpr',id,3)>>>0)===((r3+1)>>>0),'actual translator output GPR3');
+   insist((c('loop_cpu_gpr',id,2)>>>0)===(0x81002000+id),'guest r2 SDA');
+   insist((c('loop_cpu_gpr',id,13)>>>0)===(0x81003000+id),'guest r13 SDA');
+   insist((c('loop_pc',id)>>>0)===0x8001FFF0,'return PC sentinel');
+   insist(c('loop_cpu_steps',id)===1,'one generated function call, two PPC opcodes');
+ }
+ host.dispose();
+ let cycles=0;
+ for(let iteration=0;iteration<128;iteration++){
+   c('loop_reset');
+   insist(c('loop_translated_spawn',1,0x80005010,iteration,0,0)===1,'reset spawn');
+   const next=createFrameHost(wasm,{ids:[1],budget:1,maxFrames:2});
+   const value=await next.start();
+   insist(value.reason==='completed'&&value.frames===1,'true RAF translated callback');
+   insist(c('loop_cpu_gpr',1,3)===iteration+1,'actual emitted function computed result');
+   next.dispose();cycles++;
+ }
+ c('loop_reset');
+ insist(c('mem_pages')===0&&c('loop_trace_length')===0,'real Wasm reset clears state');
+ const data={status:'pass',compilerPipeline:'actual upstream Translator.Cli C# -> generated C++ -> Emscripten WASM',
+   source:'two copyright-free PPC instructions',generatedFunction:'void func_80001000(CpuContext*)',
+   contexts:3,translatedInstructionsPerFunction:2,firstFrames:frames,stressCycles:cycles,
+   animationFrames:frames+cycles,integerWrapResult:0,finalPages:c('mem_pages'),
+   warning:'Test-only two-op function; no PPC game code, memory helper coverage or original Wii boot'};
+ window.__nsmbRealTranslator=data;output.textContent=JSON.stringify(data,null,2);
+}catch(error){
+ const data={status:'fail',error:String(error?.stack||error)};
+ window.__nsmbRealTranslator=data;output.textContent=JSON.stringify(data,null,2);
+}
+</script></body></html>
