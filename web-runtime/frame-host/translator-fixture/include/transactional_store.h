@@ -7,7 +7,8 @@
 #ifdef NSMB_PHASE6_TRANSLATED_STORE_FIXTURE
 extern "C" {
 uint32_t nsmbw_interop_read32(uint32_t);
-uint32_t nsmbw_interop_write32(uint32_t,uint32_t);
+int nsmbw_mem_atomic_pair_write32(uint32_t,uint32_t,uint32_t,uint32_t);
+int nsmbw_mem_error();
 uint32_t nsmbw_interop_status();
 uint32_t nsmbw_interop_retry_safe();
 uint32_t nsmbw_interop_device_invoked();
@@ -43,25 +44,21 @@ inline void FlatWrite32(uint32_t guest,uint32_t value) {
 }
 inline bool Commit() {
  if(errorCode)return false;
- // Staging performs zero guest writes. Only pure RAM words can commit.
- // Each W07 write is a 4-byte checked atomic operation. Undo earlier
- // writes in REVERSE order on a later failure (all earlier pages are
- // now mapped, and no MMIO or device callbacks are permitted).
- uint32_t done=0;
- for(;done<n;++done){
-   const uint32_t ok=nsmbw_interop_write32(writes[done].address,writes[done].value);
-   const uint32_t status=nsmbw_interop_status();
-   if(ok==1u && status==0u)continue;
-   errorCode=status?status:1u;
-   retrySafe=0; // conservative: committed RAM write before late fault
-   while(done>0) {
-     const auto& restore=writes[--done];
-     if(nsmbw_interop_write32(restore.address,restore.original)!=1u ||
-        nsmbw_interop_status()!=0u)std::abort(); // never silently succeed
-   }
-   return false;
- }
- return true;
+ if(n==0)return true;
+ // All staging reads were checked by W07, but COMMIT MUST reserve both
+ // distinct W04 physical pages atomically before mutating ANY byte/page
+ // table. This prevents a quota fault after allocating the first NEW page
+ // from leaving a ghost page when the second NEW page cannot fit.
+ // Two aliases are coalesced in the journal and passed as one word twice.
+ const auto& first=writes[0];
+ const auto& second=writes[n==2?1:0];
+ const int success=nsmbw_mem_atomic_pair_write32(
+   first.address,first.value,second.address,second.value);
+ if(success==1 && nsmbw_mem_error()==0)return true;
+ errorCode=static_cast<uint32_t>(nsmbw_mem_error());
+ if(!errorCode)errorCode=1u;
+ retrySafe=0; // conservative: never replay unknown mixed-effects batch
+ return false;
 }
 }
 #endif

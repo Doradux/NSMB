@@ -34,7 +34,7 @@ try{
   expect((c('mem_read32',a)>>>0)===v && (c('mem_read32',a+0x1000)>>>0)===v,'physical alias guest STW words');
   expect((c('loop_cpu_gpr',id,3)>>>0)===((v+1)>>>0),'real translated bl leaf increment');
  }
- // Quota fails only AFTER the first physical W07 RAM word has been written.
+ // Both source-generated guest STW operations are staged; W04 atomically rejects budget without ANY physical write.
  c('loop_reset');
  expect(c('mem_write32',0x80010000,0xDEADBEEF)===1,'preexisting word');
  expect(c('mem_set_page_budget',1)===1,'one physical RAM page');
@@ -43,7 +43,7 @@ try{
  const blocked=await quota.start();
  expect(blocked.reason==='blocked'&&blocked.faulted===1,'quota aborts guest');
  expect(c('loop_guest_error',1)===3,'quota W07 typed status');
- expect((c('mem_read32',0xC0010000)>>>0)===0xDEADBEEF,'FIRST RAM word rolled back');
+ expect((c('mem_read32',0xC0010000)>>>0)===0xDEADBEEF,'first original RAM word preserved by all-pages atomic preflight');
  expect(c('mem_read32',0x80011000)===0 && c('mem_pages')===1,'no ghost second page');
  expect((c('loop_pc',1)>>>0)===0x80001000,'PC not committed');
  expect((c('loop_cpu_gpr',1,3)>>>0)===0x12345678,'GPR3 not committed');
