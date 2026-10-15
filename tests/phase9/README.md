@@ -75,3 +75,42 @@ gameplay/OS/IOS/GX compatibility. Mario controls main merges.
 - A broad first-pass parallel Chrome stress run had CDP target
   discovery failure likely from browser resource contention.
   Re-run with --test-concurrency=1 before formal 100%-suite approval.
+
+
+## Independent Toad source-derived CpuContext64 synthetic clock ef? [actual 54e0936]
+
+- Exact NEW CLEAN SHA 54e0936 independently detached in
+  C:\NSMBcowork\worktrees\Peach-Phase9-Toad-Time64-Review.
+  Source-only main2c2ef26. No Nintendo game DOL/REL/ROM or original
+  generated translated Wii C++ in any public Git worktree.
+- Authorized actual Emscripten recompiled joined_tick.wasm byte-for-
+  byte IDENTICAL to committed SHA256
+  1fcde84736171ed696b5164f7a5f09fc6e8f620ba6b85801419a97713509e0f1.
+- Toad author runtime-services + historical independent Peach clock
+  ESM/facade/native-owner regressions Node+REAL Chromium:
+  69/69 PASS, ZERO skipped. Actual C++ CpuContext* r3(high)/r4(low),
+  guest low RAM, 64-bit high/low carry, quota0 atomic rollback,
+  MMIO fault, 3 contexts, W03 shared guest reader, multiple native
+  module instances, 128 Chrome frames.
+- Our NEW tests/phase9/time64-adversarial.test.mjs 3/3 PASS,
+  ACTUAL compiled C++ and Wasm: interleave legacy lowword publish and
+  64-bit native CpuContext publishes across a u32 rollover;
+  direct native regressive high/low request refused with previous
+  CPU registers AND W04 guest word intact; MMIO-denied native
+  publish preserves CPU registers, last word and callbacks while
+  next authorized guest publish is allowed.
+- REA6.5 + WebAssembly.Module exact typed export ABI test
+  tests/phase9/rea-time64-abi.test.mjs 2/2 PASS:
+  current normal66 vs new time64 clock77 exports; clock adds exact
+  11 owned native tick/time64 symbols and retains all 66 original
+  symbol kind/function parameter/result signatures unchanged,
+  same ONE env.emscripten_resize_heap import; no test fixture/mock.
+  REA candidate evidence
+  ev_6d5dadaf7a93ca73e27189928e0d8d73eb1587f6c6bbc19b0ef53b673d9f54d5.
+- LIMITED to deterministic SYNTHETIC 64-bit sampled clock and
+  THREE native CpuContext diagnostic slots, not a physical Wii
+  60,750,000Hz oscillator, true IOS/OS/GX/VI interrupts, original
+  CPU leaf runtime, global 64-bit RAM transaction, real game boot.
+- The old 2026 source pinned DOL identity mismatch and missing
+  strict original authentication remain hard STOP regardless of
+  synthetic test successes.
