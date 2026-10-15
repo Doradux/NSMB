@@ -216,3 +216,41 @@ guest-visible monotonicity in one synthetic checked W04 RAM clock
 epoch with no 2^32 low-word rollover. Host reset must be either
 fail-closed until verified guest module epoch reset, or part of an
 explicit atomic guest reset. Toad and Mario informed.
+
+
+## Further public translated memory-read milestone (Luigi ffd3ac0)
+
+Peach independently clean checked out exact SHA ffd3ac0 at
+Peach-Phase5-Luigi-MemoryAudit. Executed real PUBLIC precompiled upstream
+Translator.Cli .NET 8 on another generated 264-byte entirely fictional
+PPC DOL with ONLY lwz r3,0(r4); blr, strict synthetic SHA manifest.
+Read unedited generated C++ using CpuContext* signature and actual
+MemoryInline::FlatRead32(r4). Linked into isolated test-only
+Emscripten module with one intentionally narrow checked guest read
+shim delegating to nsmbw_interop_read32 and immediate typed W07
+failure metadata; normal production Wasm is not modified or replaced.
+
+Luigi authored translator_memory Node+REAL Chrome: 5/5 PASS zero skipped
+(real RAF and 128 reset cycles). Peach own
+tests/phase5/translator-memory.test.mjs: 2/2 PASS on actual rebuilt
+Wasm. Three simultaneous real C++ guests: legal zero input, forbidden
+MMIO (typed code4), unmapped (code1); faulty guests retain PC0x80001000
+and r3=0xDEADBEEF, legal zero must reach DONE with r3=0, independent
+guest memory aliases remain intact. Reap/return with changed valid
+RAM data 0xFEEDBEEF retains correct unsigned value. With budget0,
+unallocated legal guest sparse W04 RAM reads zero without allocation.
+
+Reproduce on marcos:
+    $env:NSMB_LUIGI_PHASE5_ROOT='C:\NSMBcowork\worktrees\Peach-Phase5-Luigi-MemoryAudit'
+    node --test tests/phase5/translator-memory.test.mjs
+
+Formal independent W03 Peach exact SHA ffd3ac0 APPROVED
+strictly for a single public synthetic lwz fixture:
+C:\NSMBcowork\reviews\2026-10-15T08-54-21-634Z_Peach_to_W03_9787c75d.md
+
+NO game original DOL, dynamic PPC execution, 4GiB guest memory or
+full MemoryInline writes/resolve span/32-to-64 bit/FP/device side
+effect rollback/HLE. A temporary CpuContext safely discards register
+changes after one checked read; it cannot roll back arbitrary guest
+writes or device callbacks and must not be misrepresented as general
+translated-code transactional execution.
