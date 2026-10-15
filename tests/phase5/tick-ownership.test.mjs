@@ -57,3 +57,28 @@ test('RED: multiple host clocks must not regress shared W04 tick even through gu
  assert.equal(seen,200,'stale second clock MUST NOT overwrite a later guest tick with 100');
  assert.equal(rejected,true,'stale competing writer must explicitly reject or stay behind current tick');
 });
+
+test('RED: duplicate ESM loads cannot each claim one guest-Wasm clock owner',async()=>{
+ const {mod:m}=await fresh();
+ const moduleUrl=pathToFileURL(host).href;
+ // Query-distinct imports are separate standard ESM module evaluations.
+ // The real guest Wasm remains exactly the SAME instance and shared W04 RAM.
+ const createA=(await import(moduleUrl+'?peachOwner=A')).createSyntheticTickClock;
+ const createB=(await import(moduleUrl+'?peachOwner=B')).createSyntheticTickClock;
+ const a=createA(m,{address:0x80008000});
+ let b;
+ try { b=createB(m,{address:0xC0008000}) }
+ catch(e){
+   assert.match(String(e.message),/TICK|CLOCK|OWNER|ALIAS|DUPLICATE/);
+   assert.equal(a.publish(200n).written,true);
+   assert.equal(m._nsmbw_mem_read32(0x80008000)>>>0,200);
+   return;
+ }
+ assert.equal(a.publish(200n).written,true);
+ let rejected=false;
+ try {const r=b.publish(100n);rejected=r.written===false}
+ catch {rejected=true}
+ assert.equal(m._nsmbw_mem_read32(0xC0008000)>>>0,200,
+   'two independently loaded JS copies MUST NOT regress one shared C++ Wasm tick word');
+ assert.equal(rejected,true,'stale second clock authority must report failure');
+});
