@@ -50,7 +50,10 @@ function verify(file){
  const exports=entries.filter(e=>e.direction==='export').map(e=>e.name).sort();
  assert.deepEqual(imports,abi.imports,'REA must agree with native imported interface');
  assert.deepEqual(exports,abi.exports,'REA must agree with native exported interface');
- return {...abi,evidenceId:evidence.evidence_id};
+ const signatures=new Map(entries.filter(e=>e.direction==='export'||e.direction==='import')
+   .map(e=>[(e.direction==='import'?e.module+'.':'')+e.direction+':'+e.name,
+     {kind:e.kind,signature:e.signature}]));
+ return {...abi,evidenceId:evidence.evidence_id,signatures};
 }
 test('REA 6.5 + native Wasm: published main W03 CPU ABI, no private fixture exports',{timeout:60000},()=>{
  const file=resolve(root,'web-runtime/frame-host/dist/frame_loop.wasm');
@@ -63,7 +66,7 @@ test('REA 6.5 + native Wasm: published main W03 CPU ABI, no private fixture expo
 });
 test('REA 6.5 + native Wasm: NEW rebuilt clock preserves main API and adds ONLY four tick exports',{timeout:60000},()=>{
  assert.ok(clockRoot,'set NSMB_PHASE8_CLOCK_ROOT to a NEW clean exact candidate checkout');
- const main=readArtifact(resolve(root,'web-runtime/frame-host/dist/frame_loop.wasm'));
+ const main=verify(resolve(root,'web-runtime/frame-host/dist/frame_loop.wasm'));
  const clock=verify(resolve(clockRoot,'web-runtime/runtime-services/dist/joined_tick.wasm'));
  assert.deepEqual(clock.imports,main.imports,
    'New clock must not import device callbacks or private/native capabilities');
@@ -73,6 +76,13 @@ test('REA 6.5 + native Wasm: NEW rebuilt clock preserves main API and adds ONLY 
    'Unexpected added exports beyond the reviewed clock service');
  assert.deepEqual(main.exports.filter(x=>!clock.exports.includes(x)),[],
    'Clock link silently removed part of CURRENT normal W03 ABI');
+ for(const name of main.exports){
+   assert.deepEqual(clock.signatures.get('export:'+name),
+     main.signatures.get('export:'+name),'Clock changed the typed signature of '+name);
+ }
+ assert.deepEqual(clock.signatures.get('env.import:emscripten_resize_heap'),
+   main.signatures.get('env.import:emscripten_resize_heap'),
+   'Clock changed the imported Emscripten resize signature');
  for(const name of clock.exports)assert.doesNotMatch(name,MOCK,
    'Clock exported private test-only symbol '+name);
  console.log('REA candidate clock',clock.sha,clock.evidenceId);
