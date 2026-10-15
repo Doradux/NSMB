@@ -177,3 +177,31 @@ C:\NSMBcowork\reviews\2026-10-15T07-38-32-392Z_Peach_to_W03_af6e380d.md.
 Toad's independent review found overlapping input too. New Luigi exact
 clean SHA must pass both tests, full authored suites, and actual Chrome
 before approval. Do not merge 937a394.
+
+## Update — Luigi corrected CPU ABI 65af751 independently GREEN
+
+Peach created a NEW clean detached exact SHA 65af751 checkout
+Peach-Phase4-Luigi-Final-Audit and rebuilt its normal C++ frame host,
+isolated test-only MMIO fixture and Asyncify Wasm through local Emscripten.
+All author tests PASS 38/38, 0 skipped incl actual Chromium real synthetic
+PPC CPU callbacks/guest-address stacks. Independently ran Peach Phase4 QA
+with NSMB_PHASE4_ROOT=Peach-Phase4-Luigi-Final-Audit and
+NSMB_TOAD_PHASE4_ROOT=Peach-Phase4-Toad-FixReview (Toad approved 022d6d9):
+15/15 PASS, 0 skipped, real Chrome 320px with 128 linked input RAFs and
+128 CPU ABI call/return RAFs. The TWO formerly red real-Wasm stack tests
+now pass: rejection of 0x80004010 stack aliasing input 0xC0004000, and
+rejection of two active CPU contexts reusing one stackTop.
+
+CPU guest PC/r1/LR restored after 11 actual C++ synthetic instructions,
+typed 3/4/5/6 errors checked per context, safe quota retry, input unplug
+neutralization and exact loopback HTTP allowlist verified. Test-only
+fixture deliberately uses **different** GX register addresses
+0xCC008000 and 0xCC008004 for two independent rejected callbacks, because
+65af751 now prevents reusing overlapping writable output reservations.
+This respects the tighter ABI guard while keeping strict error 5/6
+assertions. Production Wasm never exports test MMIO callback fixtures.
+
+Only bounded synthetic PPC-style diagnostics are approved by Peach,
+NOT actual translated NSMBW function/stack, HLE, Wii CPU, GX or game boot.
+The original W01 pinned DOL hash mismatch and strict audit negatives remain
+blocking.
