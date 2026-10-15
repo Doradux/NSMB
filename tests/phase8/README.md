@@ -59,3 +59,48 @@ REA Wasm validity is STATIC ONLY: not semantically functional
 PowerPC, not authentic Nintendo Wii 64bit OSGetTime or hardware,
 not game boot, not a working/playable original Wii game.
 Any future clock SHA requires fresh REA and Node/Chromium replay.
+
+
+## New Luigi public source-generated STB milestone — exact SHA 768cb46
+
+Independent clean detached worktree:
+C:\NSMBcowork\worktrees\Peach-Phase8-Luigi-STB-Review.
+Actual public Translator.Cli.dll on newly invented 268-byte 3-op PPC
+DOL, STB r3,0(r4); STW r3,0(r6); BLR. Inspected GENERATED C++
+CpuContext* and MemoryInline::FlatWrite8/FlatWrite32 in order.
+Compiled unmodified generated C++ with authorized local Emscripten.
+Exact synthetic fixture SHA256
+28f1d1669f13c14486feca1401a55836c2bb9cc4e0c3bcdbc6d36ae3ddba047a
+matched original checked-in binary before AND after independent build.
+Checkout remains clean. No source-derived Nintendo game data used.
+
+Author 16/16 Node + REAL Chromium PASS zero skips. Full host
+and Phase3 94/94 PASS zero skips including genuine Chrome.
+Reviewer-owned tests/phase8/stb-adversarial.test.mjs 3/3 PASS on real
+compiled generated C++ Wasm: last MEM1 byte at 0x817FFFFF updates
+only final BE lane with second STW on independent MEM2; first
+unallocated STB then later same-physical-word STW coalesces at quota1
+without ghost page; staged last-page byte and PC/GPR untouched when
+later STW targets MMIO/GX and callbacks never execute.
+
+Independent REA6.5.0 typed ABI test
+tests/phase8/rea-stb-abi.test.mjs 1/1 PASS zero skips.
+REA static fixture exactly preserves ALL normal main9f000e0
+imports/exports and their kind/function typed parameter/result
+signatures. Adds only test-only
+nsmbw_mem_atomic_pair_write32 and nsmbw_loop_translated_store_spawn
+(68 fixture vs 66 normal exports), no mock policy handlers, same
+one env.emscripten_resize_heap import. REA WABT artifact SHA matches
+Node crypto and actual committed bytes; candidate evidence ID
+ev_570f8709dc2ef5a8adc4b80df0f0240ac02df667d8d17626164d254cfc45c571.
+Run exact candidate:
+    $env:NSMB_PHASE8_STB_ROOT='C:\NSMBcowork\worktrees\Peach-Phase8-Luigi-STB-Review'
+    $env:NSMB_PHASE8_BASE_ROOT='C:\NSMBcowork\worktrees\Peach-Phase8-QA'
+    node --test tests/phase8/stb-adversarial.test.mjs tests/phase8/rea-stb-abi.test.mjs
+
+Scope is ONE checked 8-bit STB and later 32-bit STW on two
+ordinary aligned MEM1/MEM2 RAM words under a synthetic C++ CPU
+context. No generic STB/STH/lwz helper or 16-bit/64-bit cross-page
+halfword, native Wii OS/IOS/GX/VI, real PowerPC game instructions,
+original commercial DOL identity or boot proved. Mario-only main
+merge after exact SHA critical peer review.
