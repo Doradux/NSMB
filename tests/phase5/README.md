@@ -149,3 +149,49 @@ Fix must enforce timebase ownership bound to the underlying guest
 Wasm instance or explicit host capability, independently of JS
 module import identity; aliasing must remain canonical. Original
 Wii 64-bit OSGetTime/interrupt semantics are STILL UNIMPLEMENTED.
+
+
+## Verified actual public C# Translator → synthetic PowerPC → WebAssembly ABI
+
+Luigi exact new public synthetic ABI branch SHA 702eb3b; Peach
+created a NEW independent clean detached reviewer worktree at
+C:\NSMBcowork\worktrees\Peach-Phase5-Luigi-Audit. Rebuilt Emscripten
+normal, TEST-only typed callback and Asyncify Wasm; executed actual
+precompiled public upstream Translator.Cli .NET8 .dll through
+build_translator_fixture.ps1 using a newly generated **264-byte
+copyright-free** DOL with exactly two public-invented big-endian PPC
+instruction words addi r3,r3,1 + blr.
+
+Genuine C# translator emitted a real generated_functions/
+func_80001000.cpp (ignored in Git), signature
+extern "C" void func_80001000(CpuContext* MKW_RESTRICT ctx),
+r3=(r3+1), ctx->gpr[3]=r3, explicit gpr_read/write mask 0x8.
+Peach read that exact generated C++ and verified source-only
+upstream runtime/include/isa/ppc_isa_context.h alignment/fields.
+Compiled that unmodified generated C++ with checked W04/W07/W03
+host into one separate TEST-only frame_loop_translated_fixture.wasm;
+normal browser frame_loop.wasm neither exports fake test MMIO knobs
+nor test-generated translated spawn.
+
+Author frame-host and Phase3 tests **52/52 PASS, 0 skipped** incl
+real headless Chrome running generated guest C++, and Peach Phase4
+independent QA suite **16/16 PASS** incl real Chrome320 / 128+128
+RAF on normal synthetic Wasm. Peach new code
+tests/phase5/translator-abi.test.mjs **2/2 PASS**, actual translated
+fixture (3 CpuContexts, PC/LR/r1/r2/r13/r3, unsigned 32-bit wrap,
+physical cached/uncached stack overlap rejection, eight-slot
+saturation, guest ID reuse/reap, no unexpected RAM pages). Run:
+
+    $env:NSMB_LUIGI_PHASE5_ROOT='C:\NSMBcowork\worktrees\Peach-Phase5-Luigi-Audit'
+    node --test tests/phase5/translator-abi.test.mjs
+
+Formal W03 Peach 702eb3b APPROVED SYNTHETIC ONLY:
+C:\NSMBcowork\reviews\2026-10-15T08-42-19-386Z_Peach_to_W03_f794e3d3.md.
+
+Important boundary: actual public precompiled Translator.Cli ran on
+a fake DOL, but the .NET SDK is not installed, so no fresh C# build.
+This is NOT translated original NSMBW, no 4GiB MemoryInline,
+state-free function calls, FPR/paired-single, device HLE, native
+dispatch registry, Wii guest fibers or boot. No owner private file,
+original hash or extracted game data was read, generated or published.
+W01 original DOL identity still mismatched and is BLOCKED.
