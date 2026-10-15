@@ -52,7 +52,11 @@ reservations cannot collide with new writable stack/output words. Cached
 address (`addr & 0x3FFFFFFF`). Sharing a READ-ONLY 4-byte input packet across
 contexts is supported. A context retains its owned ranges until explicit
 reap/reset, including while PAUSED, DONE, FAULTED or CANCELLED. This
-preflight is NOT a general virtual-memory/MMU allocator and does not police
+preflight is limited to **ordinary mapped W04 MEM1/MEM2 RAM**. It must NOT
+reserve MMIO/GX device registers: two CPU contexts may independently attempt
+`stw` to the same `0xCC008000` FIFO and receive W07 typed callback errors
+5/6, because a device address is not an exclusive guest RAM allocation.
+This is NOT a general virtual-memory/MMU allocator and does not police
 arbitrary legacy W03 writes; the host must separately reserve those.
 An invalid spawn leaves scheduler, other guests and checked RAM intact.
 
