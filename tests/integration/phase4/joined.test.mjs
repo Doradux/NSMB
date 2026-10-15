@@ -214,7 +214,7 @@ test('RED gate: isolated CPU fixture distinguishes typed MMIO callback rejection
  for(const [id,reject,expected] of [[21,1,5],[22,2,6]]){
    c('test_policy_rejection',reject);
    assert.equal(c('loop_cpu_spawn',id,0x80010000,0x80005010+(id-21)*0x1000,
-      0x80004000,0xCC008000,1),1);
+      0x80004000,0xCC008000+4*(id-21),1),1);
    let priorPc=c('loop_pc',id);
    for(let i=0;i<16&&c('loop_state',id)===1;i++){
      assert.equal(c('loop_frame',1),1);
