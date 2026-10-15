@@ -40,9 +40,27 @@ test('RED: no packet mutation when all eight guest slots contain completed unrea
  assert.equal(m._nsmbw_loop_ready(),0,'no READY contexts does not mean free capacity');
  assert.equal(m._nsmbw_loop_state(9),0);
  const before=m._nsmbw_mem_read32(0x80004000)>>>0;
- assert.throws(()=>apply(m,[],{guestId:9,sequence:99}),/JOINED_GUEST_SPAWN_REJECTED|GUEST_CONTEXT_CAPACITY/);
+ assert.throws(()=>apply(m,[],{guestId:9,sequence:99}),/JOINED_GUEST_SPAWN_REJECTED|GUEST_CONTEXT_CAPACITY|GUEST_CONTEXTS_ALREADY_PRESENT/);
  assert.equal(m._nsmbw_loop_state(9),0,'requested context was never scheduled');
  assert.equal(m._nsmbw_mem_read32(0x80004000)>>>0,before,
   'FAILED frame MUST NOT change shared guest input snapshot BEFORE spawn checks');
  assert.equal(m._nsmbw_loop_done(),8,'cannot auto-reap other owned guest contexts');
+});
+
+test('RED: suspended guest retains owned input word until resumed, no silent overwrite by another frame',async()=>{
+ const {module:m,applyJoinedInputFrame:apply}=await fresh();
+ assert.equal(m._nsmbw_mem_write32(0x80004000,0x01000001),1);
+ assert.equal(m._nsmbw_loop_spawn(44,0x80004000,0x80009000,0,1),1);
+ assert.equal(m._nsmbw_loop_suspend(44),1);
+ assert.equal(m._nsmbw_loop_paused(),1);
+ assert.equal(m._nsmbw_loop_ready(),0,'paused context still owns shared packet');
+ assert.throws(()=>apply(m,[],{guestId:55,sequence:9}),
+   /GUEST_CONTEXTS_ALREADY_PRESENT|OTHER_GUEST_ALREADY_RUNNABLE|GUEST_INPUT_OWNED/);
+ assert.equal(m._nsmbw_mem_read32(0x80004000)>>>0,0x01000001,
+   'a rejected input attempt must not rewrite an existing paused guest packet');
+ assert.equal(m._nsmbw_loop_state(55),0);
+ assert.equal(m._nsmbw_loop_resume(44),1);
+ assert.equal(m._nsmbw_loop_frame(1),1);
+ assert.equal(m._nsmbw_loop_state(44),3);
+ assert.equal(m._nsmbw_loop_reg_a(44)>>>0,0x01000001,'paused context must see original input packet');
 });
