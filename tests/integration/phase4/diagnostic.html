@@ -1,0 +1,147 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>Phase 4 synthetic guest CPU + input acceptance</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:1rem;font:16px/1.5 system-ui, sans-serif;background:#101820;color:#fafafa}
+main{max-width:850px;margin:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1c2b38;padding:1rem;border-radius:8px}
+#status{padding:.7rem;border:1px solid #8dbed1;border-radius:6px}a{color:#9ed4ff}
+</style></head><body><main><h1>Single guest Wasm proof</h1>
+<p>Only independently authored synthetic C++ code. Not the original Wii executable, gameplay or HLE.</p>
+<div role="status" aria-live="polite" id="status" data-state="pending">Executing actual WebAssembly in Chrome...</div>
+<pre id="details"></pre></main>
+<script type="module">
+import createWasm from '/frame_loop.mjs';
+import { createFrameHost } from '/host.mjs';
+import { writeSyntheticGamepadSnapshot } from '/runtime-services/host_input.mjs';
+const element=document.getElementById('status'),details=document.getElementById('details');
+const ensure=(condition,label)=>{if(!condition)throw Error(label);};
+try{
+ const wasm=await createWasm({locateFile:()=>'/frame_loop.wasm'});
+ const c=(name,...args)=>{
+   const fn=wasm['_nsmbw_'+name];
+   ensure(typeof fn==='function','MISSING C++ WASM EXPORT _nsmbw_'+name+'; no JS mock permitted');
+   return fn(...args);
+ };
+ ensure(typeof wasm._nsmbw_services_input_store==='function',
+   'RED GATE: real single Wasm requires Toad input service, no second module');
+ ensure(typeof wasm._nsmbw_test_policy_install==='undefined',
+   'Fixture callback must not ship in production linked Wasm');
+ c('loop_reset');
+ const pad={connected:true,mapping:'standard',index:0,axes:[0,0],
+   buttons:Array.from({length:17},(_,i)=>({pressed:i===0,value:i===0?1:0}))};
+ const pressed=writeSyntheticGamepadSnapshot(wasm,[pad],0x80001000,9);
+ ensure(pressed.written && pressed.status===0,'shared RAM input store rejected');
+ ensure(c('mem_read32',0xC0001000)===0x09000001,'W04 cached alias input packet missing');
+ ensure(c('loop_spawn',1,0x80001000,0x80002000,1,2)===1,'spawn guest1');
+ ensure(c('loop_spawn',2,0x80001000,0x80002020,2,2)===1,'spawn guest2');
+ ensure(c('loop_spawn',3,0x80001000,0xCC008000,3,1)===1,'spawn MMIO fault guest3');
+ const frames=[];let host;
+ host=createFrameHost(wasm,{ids:[1,2,3],budget:1,maxFrames:16,
+   onFrame:info=>{
+    frames.push({frame:info.frames,executed:info.executed,ready:info.ready,
+      pcs:info.contexts.map(x=>x.pc)});
+    if(info.frames===1)ensure(host.suspend(2)===1,'pause second context');
+    if(info.frames===3){
+      ensure(host.resume(2)===1,'onFrame resume must wake guest');
+      ensure(host.cancel(3)===1,'cancel faulted MMIO guest');
+    }
+   }
+ });
+ const result=await host.start();
+ ensure(result.reason==='completed'&&result.frames===5,'premature blocked host after input');
+ ensure(result.done===2&&result.cancelled===1,'scheduled guests did not finish');
+ ensure(c('mem_read32',0x80002004)===0x09000003,'guest1 actual C++ output wrong');
+ ensure(c('mem_read32',0x80002024)===0x09000005,'guest2 actual C++ output wrong');
+ host.dispose();
+ const unplug=writeSyntheticGamepadSnapshot(wasm,[],0x80001000,10);
+ ensure(unplug.written&&unplug.disconnected&&unplug.status===0,'controller unplug did not clear');
+ ensure(c('mem_read32',0x80001000)===0x0A000000,'stale controller bits');
+ ensure(c('loop_spawn',4,0x80001000,0x80002040,1,1)===1,'spawn unplug reader');
+ ensure(c('loop_frame',1)===1,'scheduled guest cannot read neutral word');
+ ensure(c('loop_reg_a',4)===0x0A000001,'C++ guest did not see updated input');
+ let stress=0;
+ for(let i=0;i<128;i++){
+   c('loop_reset');ensure(c('mem_pages')===0,'guest pages leaked between resets');
+   ensure(c('mem_set_page_budget',1)===1,'invalid quota');
+   const entry=writeSyntheticGamepadSnapshot(wasm,[pad],0x80001000,i);
+   ensure(entry.written,'per-frame guest input rejected '+i);
+   ensure(c('loop_spawn',11,0x80001000,0x80001004,1,1)===1,'guest schedule fail');
+   const session=createFrameHost(wasm,{ids:[11],budget:1,maxFrames:2});
+   const finished=await session.start();
+   ensure(finished.reason==='completed'&&finished.frames===1,'RAF cycle fault '+i);
+   ensure((c('loop_reg_a',11)>>>0)===(((i<<24)|2)>>>0),'wrong guest reg after input '+i);
+   ensure(c('mem_pages')===1&&c('loop_trace_length')===1,'unbounded guest RAM/trace '+i);
+   session.dispose();stress++;
+ }
+ const required=['_nsmbw_loop_cpu_spawn','_nsmbw_loop_cpu_gpr',
+   '_nsmbw_loop_cpu_steps','_nsmbw_loop_cpu_lr','_nsmbw_loop_cpu_ctr',
+   '_nsmbw_loop_cpu_cr','_nsmbw_loop_cpu_xer'];
+ for(const name of required)ensure(typeof wasm[name]==='function',
+  'RED GATE: agreed Luigi C++ synthetic PPC ABI missing '+name);
+ c('loop_reset');ensure(c('mem_set_page_budget',8)===1,'PPC CPU page budget');
+ ensure(writeSyntheticGamepadSnapshot(wasm,[pad],0x80004000,9).written,'CPU input stored in W04 RAM');
+ const stacks=[0x80005010,0x80006010,0x80007010];
+ const out=[0x80009000,0x8000A000,0x8000B000],salts=[5,7,9];
+ for(let j=0;j<3;j++){
+   ensure(c('loop_cpu_spawn',j+1,0x80010000,stacks[j],0x80004000,out[j],salts[j])===1,
+    'PPC guest CPU spawn '+j);
+   ensure((c('loop_cpu_gpr',j+1,1)>>>0)===stacks[j],'bad PowerPC r1 '+j);
+ }
+ const cpuFrames=[];let cpuHost;
+ cpuHost=createFrameHost(wasm,{ids:[1,2,3],budget:3,maxFrames:32,
+   onFrame:f=>{
+    cpuFrames.push({frame:f.frames, pcs:f.contexts.map(x=>x.pc), ready:f.ready});
+    if(f.frames===1)ensure(cpuHost.suspend(2)===1,'suspend CPU ctx2');
+    if(f.frames===3)ensure(cpuHost.resume(2)===1,'resume CPU ctx2');
+   }
+ });
+ const cpuDone=await cpuHost.start();
+ ensure(cpuDone.reason==='completed'&&cpuDone.done===3,'guest CPU call/return failed');
+ cpuHost.dispose();
+ const cpuResults=[];
+ for(let j=0;j<3;j++){
+   const id=j+1;
+   ensure(c('loop_cpu_steps',id)===11,'missing PPC guest instruction '+id);
+   ensure((c('loop_cpu_gpr',id,1)>>>0)===stacks[j],'guest r1 stack not restored');
+   ensure((c('loop_cpu_lr',id)>>>0)===0x8001FFF0,'guest LR sentinel wrong');
+   ensure(c('loop_cpu_ctr',id)===0&&c('loop_cpu_cr',id)===0&&c('loop_cpu_xer',id)===0,
+     'guest conditional/link state not isolated');
+   ensure((c('mem_read32',out[j])>>>0)===15+2*j,'callee output shared RAM incorrect');
+   ensure((c('loop_cpu_gpr',id,3)>>>0)===15+2*j,'callee r3 wrong');
+   cpuResults.push(c('mem_read32',out[j])>>>0);
+ }
+ ensure(writeSyntheticGamepadSnapshot(wasm,[],0x80004000,10).written,'CPU input unplug');
+ ensure(c('mem_read32',0x80004000)===0x0A000000,'neutral CPU packet missing');
+ // New CPU caller must see neutral controls from the SAME module memory.
+ ensure(c('mem_set_page_budget',10)===1,'extended quota for fourth CPU stack');
+ ensure(c('loop_cpu_spawn',4,0x80010000,0x80008010,0x80004000,0x8000C000,2)===1,
+   'CPU context after unplug');
+ ensure(c('loop_frame',64)===11,'neutral CPU callee did not run');
+ ensure((c('mem_read32',0x8000C000)>>>0)===12,'neutral buttons were not released');
+ let cpuStress=0;
+ for(let i=0;i<128;i++){
+   c('loop_reset');ensure(c('mem_pages')===0,'CPU guest pages leaked after reset');
+   ensure(c('mem_set_page_budget',3)===1,'CPU stress budget');
+   ensure(writeSyntheticGamepadSnapshot(wasm,[pad],0x80004000,i).written,'CPU stress input');
+   ensure(c('loop_cpu_spawn',7,0x80010000,0x80005010,0x80004000,0x80009000,1)===1,'CPU stress spawn');
+   const iteration=createFrameHost(wasm,{ids:[7],budget:16,maxFrames:2});
+   const finished=await iteration.start();
+   ensure(finished.reason==='completed'&&finished.frames===1,'CPU RAF stress '+i);
+   ensure(c('loop_cpu_steps',7)===11,'CPU instructions truncated');
+   ensure((c('mem_read32',0x80009000)>>>0)===i+2,'CPU stack/input result mismatch '+i);
+   ensure(c('mem_pages')===3,'CPU page budget leak '+i);
+   iteration.dispose();cpuStress++;
+ }
+ const report={backend:'real one-instance synthetic C++ linked Emscripten Wasm',
+   frames,done:result.done,unplugPacket:0x0A000000,stressCycles:stress,
+   cpuFrames:cpuFrames.length,cpuResults,cpuStress,cpuAbiExports:required.length,
+   realGameBoot:false};
+ window.__phase4Report=report;
+ details.textContent=JSON.stringify(report,null,2);
+ element.dataset.state='pass';element.textContent='PASS: Phase4 linked CPU+input actual browser';
+}catch(e){
+ details.textContent=String(e?.stack||e);
+ element.dataset.state='fail';element.textContent='FAIL: '+(e?.message||e);
+ // Expected RED gates should not hide unhandled JS errors by emitting console.error
+}
+</script></body></html>
