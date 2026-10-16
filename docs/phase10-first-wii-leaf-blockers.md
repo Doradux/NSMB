@@ -9,10 +9,11 @@ is an engineering dependency inventory, not translated game code.
 - Public `main` base `2c2ef26` is the synthetic runtime baseline.
 - The published auditor `scripts/audit_profile.py` revision
   `110697c` uses permissive `json.loads(text)` for REL layout.
-  Peach's phase 9 tests exposed four duplicate-key false acceptances;
-  the extra independent structural gates in
-  `tests/phase10/test_w01_rel_structure.py` cover overlapping
-  executable REL ranges and uncontrolled malformed section mappings.
+  Peach's phase 9 tests exposed four duplicate-key false acceptances.
+  Peach's Phase10 PR #2 separately covers executable REL overlaps.
+  Toad's `tests/phase10/test_w01_rel_structure.py` instead covers
+  uncaught exceptions for malformed structural JSON (without
+  duplicating Peach's overlap or Luigi's duplicate-key cases).
 - Mario's W01 edited checkout is NOT a clean reviewed commit. Do not
   touch it or interpret a local green suite as reviewed publication.
 - The owner's extracted original `main.dol` identity still differs
