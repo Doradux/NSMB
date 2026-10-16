@@ -1,8 +1,8 @@
 """Fail-closed public synthetic REL address/layout gates for W01.
 
 No private DOL, REL, game profile or translated code is needed. Until a
-module-aware placement/overlay proof exists, overlapping executable ranges
-cannot support an unambiguous strict source-identity claim.
+module-aware placement/overlay proof exists, malformed section mappings must not abort outside the auditor's controlled
+error contract. Overlap policies are covered independently in Peach PR #2.
 """
 import json
 import sys
@@ -39,17 +39,9 @@ class RelStrictStructuralGates(unittest.TestCase):
                                     (0x80500020, 0x20))])
         self.assertEqual(len(result), 2)
 
-    def test_one_module_overlapping_executable_sections_rejected(self):
-        self.assert_invalid([module((0x80500000, 0x40),
-                                    (0x80500020, 0x40))])
-
-    def test_two_modules_same_address_cannot_be_claimed_strict_unambiguously(self):
-        self.assert_invalid([module((0x80500000, 0x40)),
-                             module((0x80500000, 0x40))])
-
-    def test_partial_cross_module_overlap_rejected_without_overlay_proof(self):
-        self.assert_invalid([module((0x80500000, 0x40)),
-                             module((0x8050003F, 0x40))])
+    def test_top_level_list_produces_controlled_value_error(self):
+        with self.assertRaises(ValueError):
+            rel_sections("[]")
 
     def test_null_section_mapping_produces_controlled_value_error(self):
         self.assert_invalid([{"sections": None}])
