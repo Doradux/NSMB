@@ -87,6 +87,32 @@ inline void FlatWrite8(uint32_t guest,uint8_t value) {
    (original&~mask)|(static_cast<uint32_t>(value)<<shift)};
 }
 #endif
+#ifdef NSMB_PHASE9_HALFWORD_FIXTURE
+// Bounded source-generated PPC STH fixture only. Reject odd addresses
+// BEFORE truncating/alignment, so no cross-word/page/device access is
+// silently replaced by a checked 32-bit read-modify-write.
+inline void FlatWrite16(uint32_t guest,uint16_t value) {
+ if(errorCode)return;
+ if(guest&1u){errorCode=7u;retrySafe=0u;return;}
+ const uint32_t aligned=guest&~3u;
+ if(!ordinaryRam(aligned)){errorCode=7u;retrySafe=0u;return;}
+ // Big endian halfwords: offset 0 -> bits31:16; offset 2 -> bits15:0.
+ const uint32_t shift=(guest&2u)==0u?16u:0u;
+ const uint32_t mask=0xFFFFu<<shift;
+ const uint32_t phys=canonical(aligned);
+ for(uint32_t i=0;i<n;++i)if(canonical(writes[i].address)==phys) {
+   writes[i].value=(writes[i].value&~mask)|
+     (static_cast<uint32_t>(value)<<shift);
+   return;
+ }
+ if(n>=2){errorCode=7u;retrySafe=0u;return;}
+ const uint32_t original=nsmbw_interop_read32(aligned);
+ const uint32_t status=nsmbw_interop_status();
+ if(status){errorCode=status;retrySafe=0u;return;}
+ writes[n++]={aligned,original,
+   (original&~mask)|(static_cast<uint32_t>(value)<<shift)};
+}
+#endif
 inline bool Commit() {
  if(errorCode)return false;
  if(n==0)return true;
