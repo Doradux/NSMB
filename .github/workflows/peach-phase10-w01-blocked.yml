@@ -18,7 +18,7 @@ jobs:
       - name: Checkout exact OLD published W01 auditor (not Mario's staged changes)
         uses: actions/checkout@v4
         with:
-          ref: 110697c
+          ref: 110697c105ee1550f424ae05cf677153fba01348
           path: w01
           persist-credentials: false
       - name: Checkout Peach isolated Phase10 assertions
