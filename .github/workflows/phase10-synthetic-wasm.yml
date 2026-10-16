@@ -1,0 +1,63 @@
+# Phase10 public synthetic WebAssembly smoke test.
+# Workflow applies ONLY to Toad's isolated test branch, not production main.
+# Runs already-published copyright-free Emscripten Wasm; does NOT claim
+# recompilation, original game boot, or a valid W01 auditor.
+name: "Phase10 synthetic WASM smoke (serial Chrome)"
+
+on:
+  push:
+    branches:
+      - agent/toad/phase10-rel-structural-gates
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checked-wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact Time64 public synthetic candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 54e0936d9411820930c4ab1fe3b241d685e98a84
+          path: time64
+
+      - name: Checkout exact STH public synthetic candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ef65abb64884253232c223e11caa9f801dcaea71
+          path: sth
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check EXACT reviewed precompiled Wasm bytes
+        shell: bash
+        run: |
+          echo "1fcde84736171ed696b5164f7a5f09fc6e8f620ba6b85801419a97713509e0f1  time64/web-runtime/runtime-services/dist/joined_tick.wasm" | sha256sum -c -
+          echo "f68e1cef4f4f991d00e732f2cef139eb6dc54f6231b3dd2b50b16286a58fb102  sth/web-runtime/frame-host/dist/frame_loop_translated_sth_fixture.wasm" | sha256sum -c -
+
+      - name: Require real Chrome (never silently skip browser checks)
+        shell: bash
+        run: |
+          browser="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -z "$browser" ]; then
+            echo "::error::No real Chromium/Chrome binary is available; browser tests must not be skipped"
+            exit 1
+          fi
+          echo "NSMB_BROWSER=$browser" >> "$GITHUB_ENV"
+          "$browser" --version
+
+      - name: Run clock and checked memory in Node AND real Chrome sequentially
+        shell: bash
+        run: |
+          node --test --test-concurrency=1 time64/web-runtime/runtime-services/test/*.test.mjs time64/web-runtime/interop/test/*.test.mjs
+          node --test --test-concurrency=1 time64/web-runtime/frame-host/test/*.test.mjs
+
+      - name: Run genuine source-generated STH fixture Wasm in Node AND real Chrome
+        shell: bash
+        run: |
+          node --test --test-concurrency=1 sth/web-runtime/frame-host/test/translator_sth.test.mjs sth/web-runtime/frame-host/test/translator_sth_browser.test.mjs sth/web-runtime/frame-host/test/sth_export_boundary.test.mjs
