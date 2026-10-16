@@ -23,7 +23,7 @@ jobs:
       - name: Checkout exact published W01 baseline (never dirty staging)
         uses: actions/checkout@v4
         with:
-          ref: 110697c
+          ref: 110697c105ee1550f424ae05cf677153fba01348
           path: auditor
 
       - name: Execute new synthetic REL structural tests against REAL auditor code
