@@ -1,0 +1,116 @@
+# RED-first forensic runner. This workflow MUST fail while published W01
+# cannot certify source identity; NO assertions are relaxed or original media read.
+name: Peach Phase10 W01 — expected RED blocker on pinned public auditor
+
+on:
+  push:
+    branches:
+      - agent/peach/phase10-w01-identity-qa
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-public-w01-negative-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact OLD published W01 auditor (not Mario's staged changes)
+        uses: actions/checkout@v4
+        with:
+          ref: 110697c105ee1550f424ae05cf677153fba01348
+          path: w01
+          persist-credentials: false
+      - name: Checkout Peach isolated Phase10 assertions
+        uses: actions/checkout@v4
+        with:
+          ref: agent/peach/phase10-w01-identity-qa
+          path: peach10
+          persist-credentials: false
+      - name: Checkout Peach historical Phase7 and Phase9 assertions
+        uses: actions/checkout@v4
+        with:
+          ref: f845af1070e8e38d59d92acdf7671533f0530b28
+          path: peach9
+          persist-credentials: false
+      - name: Checkout Luigi Phase10 source-only assertions
+        uses: actions/checkout@v4
+        with:
+          ref: 2d66801a561a15967a3645bb7fe0030d90a7449d
+          path: luigi10
+          persist-credentials: false
+      - name: Checkout Toad Phase10 source-only assertions
+        uses: actions/checkout@v4
+        with:
+          ref: c4aa4c0e1e9a61d6abd0f91f198b48f154c46c06
+          path: toad10
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Independent exact-SHA evidence target
+        shell: bash
+        run: |
+          echo "Published W01 source PINNED as 110697c; this is NOT a candidate fix."
+          test -f w01/scripts/audit_profile.py
+          python --version
+
+      - name: Old auditor tests (baseline)
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -B -m unittest discover -s w01/tests -p 'test_audit_profile*.py' -v
+
+      - name: Expected RED — Phase7 fail-closed identity
+        shell: bash
+        continue-on-error: true
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          export NSMB_W01_AUDIT_ROOT="$GITHUB_WORKSPACE/w01"
+          python -B -m unittest discover -s peach9/tests/phase7 -p 'test_audit_*.py' -v
+
+      - name: Expected RED — Peach Phase9 REL duplicate JSON provenance
+        shell: bash
+        continue-on-error: true
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          export NSMB_W01_AUDIT_ROOT="$GITHUB_WORKSPACE/w01"
+          python -B -m unittest discover -s peach9/tests/phase9 -p 'test_w01_rel_duplicates.py' -v
+
+      - name: Expected RED — Peach Phase10 overlap and strict probe
+        shell: bash
+        continue-on-error: true
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          export NSMB_W01_AUDIT_ROOT="$GITHUB_WORKSPACE/w01"
+          python -B -m unittest discover -s peach10/tests/phase10 -p 'test_w01_*.py' -v
+
+      - name: Expected RED — Luigi Phase10 metadata and REL identity
+        shell: bash
+        continue-on-error: true
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          export NSMB_W01_AUDIT_ROOT="$GITHUB_WORKSPACE/w01"
+          python -B -m unittest discover -s luigi10/tests/phase10 -p 'test_w01_evidence_boundary.py' -v
+
+      - name: Expected RED — Toad Phase10 REL schema and module ranges
+        shell: bash
+        continue-on-error: true
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          export NSMB_W01_AUDIT_ROOT="$GITHUB_WORKSPACE/w01"
+          export PYTHONPATH="$GITHUB_WORKSPACE/w01/scripts"
+          python -B -m unittest discover -s toad10/tests/phase10 -p 'test_w01_rel_structure.py' -v
+
+      - name: Keep W01 visibly BLOCKED (expected failing workflow)
+        shell: bash
+        run: |
+          echo "::error::W01@110697c remains published vulnerable baseline, NOT approved."
+          echo "Inspect preceding raw test failures. No NEGATIVE assertions were waived."
+          echo "Only a NEW exact clean W01 SHA with independent GREEN can unblock."
+          exit 1

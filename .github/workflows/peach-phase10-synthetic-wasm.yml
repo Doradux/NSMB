@@ -1,0 +1,92 @@
+name: Peach Phase10 — synthetic Wasm regression (not Wii gameplay)
+
+on:
+  push:
+    branches:
+      - agent/peach/phase10-w01-identity-qa
+
+permissions:
+  contents: read
+
+jobs:
+  node-and-real-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact Luigi STH reviewed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ef65abb64884253232c223e11caa9f801dcaea71
+          path: ci/sth
+          submodules: true
+          persist-credentials: false
+      - name: Checkout exact Toad Time64 reviewed commit
+        uses: actions/checkout@v4
+        with:
+          ref: 54e0936d9411820930c4ab1fe3b241d685e98a84
+          path: ci/time64
+          persist-credentials: false
+      - name: Checkout Peach independent Phase9 adversarial tests
+        uses: actions/checkout@v4
+        with:
+          ref: f845af1070e8e38d59d92acdf7671533f0530b28
+          path: ci/peach9
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Verify exact reviewed Emscripten Wasm artifact hashes
+        shell: bash
+        run: |
+          echo "f68e1cef4f4f991d00e732f2cef139eb6dc54f6231b3dd2b50b16286a58fb102  ci/sth/web-runtime/frame-host/dist/frame_loop_translated_sth_fixture.wasm" | sha256sum --check --status
+          echo "1fcde84736171ed696b5164f7a5f09fc6e8f620ba6b85801419a97713509e0f1  ci/time64/web-runtime/runtime-services/dist/joined_tick.wasm" | sha256sum --check --status
+          node --version
+
+      - name: Require actual Chrome or Chromium (never skip browser tests)
+        shell: bash
+        run: |
+          for bin in google-chrome chromium chromium-browser; do
+            if command -v "$bin" >/dev/null 2>&1; then
+              echo "NSMB_BROWSER=$(command -v "$bin")" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "No real Chrome/Chromium binary is available; do not report browser tests as passed" >&2
+          exit 1
+
+      - name: Generate actual synthetic STH C++ via upstream public .NET8 Translator.Cli
+        shell: bash
+        run: |
+          dotnet build ci/sth/upstream-nsmbw/translator/src/Translator.Cli/Translator.Cli.csproj -c Release --nologo
+          node ci/sth/web-runtime/frame-host/translator-fixture/build_sth_fixture.mjs
+          dotnet ci/sth/upstream-nsmbw/translator/src/Translator.Cli/bin/Release/net8.0/Translator.Cli.dll translate-recursive 0x80001000 --project ci/sth/web-runtime/frame-host/translator-fixture/out/sth_fixture/recomp.yml --outdir ci/sth/web-runtime/frame-host/translator-fixture/out/sth_fixture/generated_functions --threads 1
+          node --input-type=module -e "import {readFileSync} from 'node:fs';import assert from 'node:assert/strict';const s=readFileSync('ci/sth/web-runtime/frame-host/translator-fixture/out/sth_fixture/generated_functions/func_80001000.cpp','utf8');const a=s.indexOf('MemoryInline::FlatWrite16('),b=s.indexOf('MemoryInline::FlatWrite32(');assert.ok(a>=0&&b>a,'Real Translator.Cli emitted unexpected store order');assert.equal((s.match(/MemoryInline::/g)||[]).length,2);console.log('Real synthetic Translator.Cli C++ validated; original game code not used')"
+
+      - name: Real source-generated STH and independent Peach Wasm tests
+        shell: bash
+        env:
+          NSMB_PHASE9_STH_ROOT: ci/sth
+        run: |
+          node --test --test-concurrency=1 \
+            ci/sth/web-runtime/frame-host/test/translator_sth.test.mjs \
+            ci/sth/web-runtime/frame-host/test/translator_sth_browser.test.mjs \
+            ci/sth/web-runtime/frame-host/test/sth_export_boundary.test.mjs \
+            ci/peach9/tests/phase9/sth-adversarial.test.mjs
+
+      - name: Real native CpuContext Time64 and independent Peach Wasm tests
+        shell: bash
+        env:
+          NSMB_PHASE9_TIME64_ROOT: ci/time64
+        run: |
+          node --test --test-concurrency=1 \
+            ci/time64/web-runtime/runtime-services/test/time64_cpu.test.mjs \
+            ci/time64/web-runtime/runtime-services/test/tick_browser.test.mjs \
+            ci/peach9/tests/phase9/time64-adversarial.test.mjs
+
+# This workflow deliberately tests only public synthetic compiled Wasm.
+# A green result DOES NOT prove source rebuild, REA, private W01 DOL identity,
+# Nintendo OS/IOS/GX functionality, or original NSMB Wii boot/gameplay.
