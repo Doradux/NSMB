@@ -41,6 +41,6 @@ jobs:
             echo "::error::Unexpected baseline GREEN: re-check source SHA and gate test assertions"
             exit 1
           fi
-          grep -q 'Ran 8 tests' "$RUNNER_TEMP/w01-red.txt"
-          grep -q 'FAILED (failures=3, errors=3)' "$RUNNER_TEMP/w01-red.txt"
-          echo "::notice::Confirmed 2 positive PASS / 3 invalid-overlap FAIL / 3 invalid-schema ERROR on public W01 110697c. Do NOT approve W01."
+          grep -q 'Ran 6 tests' "$RUNNER_TEMP/w01-red.txt"
+          grep -q 'FAILED (errors=4)' "$RUNNER_TEMP/w01-red.txt"
+          echo "::notice::Confirmed 2 positive PASS / 4 invalid-schema ERROR on public W01 110697c; overlaps are independently owned by Peach PR2. Do NOT approve W01."
