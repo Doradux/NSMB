@@ -1,4 +1,4 @@
-"""Phase 10 W01 strict evidence trust-boundary regressions.
+r"""Phase 10 W01 strict evidence trust-boundary regressions.
 
 This suite creates a tiny *invented* DOL, REL layout, translation output
 and profile in memory.  It NEVER reads Nintendo originals or user secrets.
