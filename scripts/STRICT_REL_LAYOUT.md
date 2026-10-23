@@ -35,7 +35,9 @@ an actual JSON bool even when false, and all sections require `addr` and
 are ignored **except** their JSON duplicate-key validation.
 
 Parse errors (including Unicode aliases, malformed shape/ranges, overlap,
-NaN/Infinity) always raise **ValueError**, never silently return an empty
+NaN/Infinity, exponent-overflow to infinity, unpaired Unicode surrogate,
+or JSON nesting deeper than 256 containers) always raise **ValueError**,
+never silently return an empty
 result or treat a bool as an address. JSON `object_pairs_hook` checks every
 nested object after unescaping; NFKC collisions are disallowed to avoid
 producer/consumer key-normalization ambiguity, but keys are never silently

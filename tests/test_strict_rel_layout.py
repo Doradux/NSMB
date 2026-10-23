@@ -65,6 +65,10 @@ class TestStrictRelPositives(unittest.TestCase):
             payload(module(text=section("0x80004020", "0x10"))),
             dol_sections=DOL)), 1)
 
+    def test_long_brackets_after_escaped_quote_are_only_string_content(self):
+        source = json.dumps({"modules": [], "note": 'escaped quote: "' + "[" * 400})
+        self.assertEqual(parse_rel_sections(source), [])
+
     def test_unrelated_extra_fields_do_not_act_as_waiver(self):
         raw = payload({"sections": {"text": section()}, "note": "synthetic"})
         self.assertEqual(len(parse_rel_sections(raw, dol_sections=DOL)), 1)
@@ -102,6 +106,16 @@ class TestStrictRelInvalidJson(unittest.TestCase):
                     '{"modules":[],"ignored":-Infinity}'):
             with self.subTest(raw=raw):
                 self.assertBad(raw)
+
+    def test_unpaired_unicode_surrogate_in_extension_rejected(self):
+        self.assertBad('{"modules":[],"extra":"' + chr(92) + 'ud800"}')
+
+    def test_extremely_nested_json_returns_value_error_not_recursion_error(self):
+        nested = "[" * 1500 + "0" + "]" * 1500
+        self.assertBad('{"modules":[],"extra":' + nested + '}')
+
+    def test_infinite_float_exponent_in_extension_rejected(self):
+        self.assertBad('{"modules":[],"extra":1e999}')
 
     def test_invalid_json_syntax(self):
         for raw in ("{", "", '{"modules":[}', '{"modules":[]}//comment'):
@@ -167,6 +181,17 @@ class TestStrictRelStructures(unittest.TestCase):
         for value in invalid:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 parse_rel_sections(payload(module(text=section(addr=value))))
+
+    def test_peach_phase12_four_rel_negative_oracles(self):
+        # External independent Phase12 fixtures must not be silently ignored.
+        for invalid in (
+            {"exec": "false", "addr": "0x80600000", "size": "0x20"},
+            {"exec": 1, "addr": "0x80600000", "size": "0x20"},
+            {"exec": True, "addr": "+0x80500000", "size": "0x20"},
+            {"exec": True, "addr": "0x80500000", "size": "0x2_0"},
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                parse_rel_sections(payload(module(text=invalid)))
 
     def test_bad_size_values(self):
         invalid = (True, False, None, [], {}, 0, -1, 1.5, "0x0",
