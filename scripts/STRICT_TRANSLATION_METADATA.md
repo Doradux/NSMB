@@ -40,6 +40,26 @@ The helpers `load_translation_json(text)` and
 `require_complete_map_coverage(map_addresses, translated_addresses)` are
 also exported for Mario if he needs to stage reporting separately.
 
+## Exact pinned public upstream schema proof
+
+The pinned public translator defines `BaseTranslationFunctionMetadata.EntryPoint`
+as a C# `uint` in
+`upstream-nsmbw/translator/src/Translator.Core/Mods/BaseTranslationOutputMetadata.cs`
+(line near 99). That record is serialized by `JsonOutput.CompactCamelCase`
+(line near 176); its `JsonSerializerOptions` in
+`upstream-nsmbw/translator/src/Translator.Core/IO/JsonOutput.cs`
+uses camelCase naming and **does not enable**
+`JsonNumberHandling.WriteAsString`. Thus the authentic public translator
+emits **JSON numeric uint32** `entryPoint`, never a quoted `"0xHEX"`
+string. The original audit's permissive `int(text, 0)` accepted that
+non-source shape, but it was not an upstream compatibility guarantee.
+
+Toad's REL layout is a DIFFERENT format with explicitly serialized `addr`
+and `size` hexadecimal strings. Allowing `0xHEX` there is correct but
+does not justify accepting it in translation metadata. This evidence
+resolves the temporary test-oracle ambiguity in early Peach drafts;
+use the latest numeric-only peer suite, not old provisional positives.
+
 ## Contract
 
 - JSON parser rejects any duplicate *recursively*, including JSON
@@ -47,13 +67,13 @@ also exported for Mario if he needs to stage reporting separately.
   Duplicate keys inside unknown nested objects also abort parsing.
 - Invalid root, empty/wrong functions array, non-object function, missing
   entryPoint, repeat of the **numeric** entry address → `ValueError`.
-- `entryPoint` must be an actual JSON integer `uint32` OR the
-  documented **canonical `0xHEX` string** (`0x`/`0X`, 1..8 hex digits).
-  Both normalize to Python int. Never accept `bool`, `float`,
-  decimal string, `+0x...`, `0x80_000...`, negative, overflow,
-  space/underscore separators, numeric truncation or coercion.
-  This explicitly preserves Peach Phase12's positive canonical hexadecimal
-  compatibility oracle. MAP caller inputs remain required numeric int.
+- `entryPoint` must be an actual JSON `uint32` number, since upstream
+  `BaseTranslationFunctionMetadata.EntryPoint` is a C# `uint`.
+  Reject every string (including `"0x80500004"`), `bool`, `float`,
+  decimal strings, plus-prefixed or underscored number strings, negatives,
+  overflows and truncations. **REL layout addresses are a different schema**
+  and may use strict canonical hexadecimal strings in Toad's REL helper.
+  Peach Phase12's NEW exact QA `9f97f04` requires this numeric-only ABI.
 - `quality` must be a JSON object with
   `unsupportedInstructionCount` and `invalidSsaFunctionCount`, each
   an actual integer `>=0` (never bool/float/string/null). Both are mandatory.
