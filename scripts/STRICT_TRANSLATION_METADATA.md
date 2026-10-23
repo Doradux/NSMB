@@ -47,13 +47,13 @@ also exported for Mario if he needs to stage reporting separately.
   Duplicate keys inside unknown nested objects also abort parsing.
 - Invalid root, empty/wrong functions array, non-object function, missing
   entryPoint, repeat of the **numeric** entry address → `ValueError`.
-- `entryPoint` must be an actual JSON integer `uint32` OR the
-  documented **canonical `0xHEX` string** (`0x`/`0X`, 1..8 hex digits).
-  Both normalize to Python int. Never accept `bool`, `float`,
-  decimal string, `+0x...`, `0x80_000...`, negative, overflow,
-  space/underscore separators, numeric truncation or coercion.
-  This explicitly preserves Peach Phase12's positive canonical hexadecimal
-  compatibility oracle. MAP caller inputs remain required numeric int.
+- `entryPoint` must be an actual JSON `uint32` number, since upstream
+  `BaseTranslationFunctionMetadata.EntryPoint` is a C# `uint`.
+  Reject every string (including `"0x80500004"`), `bool`, `float`,
+  decimal strings, plus-prefixed or underscored number strings, negatives,
+  overflows and truncations. **REL layout addresses are a different schema**
+  and may use strict canonical hexadecimal strings in Toad's REL helper.
+  Peach Phase12's NEW exact QA `9f97f04` requires this numeric-only ABI.
 - `quality` must be a JSON object with
   `unsupportedInstructionCount` and `invalidSsaFunctionCount`, each
   an actual integer `>=0` (never bool/float/string/null). Both are mandatory.
