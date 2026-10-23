@@ -63,6 +63,16 @@ class GoodSyntheticMetadata(unittest.TestCase):
         obj = parse_translation_metadata(good())
         self.assertFalse(obj["map_coverage_verified"])
 
+    def test_canonical_hex_strings_are_accepted_and_normalized_to_uint32(self):
+        source = json.loads(good())
+        source["functions"][1]["entryPoint"] = "0x80500004"
+        parsed = parse_translation_metadata(json.dumps(source), map_addresses=[A, B])
+        self.assertEqual(parsed["addresses"], [A, B])
+        self.assertEqual(parsed["functions"][1]["entryPoint"], B)
+        for prefix in ("0x", "0X"):
+            self.assertEqual(strict_uint32(prefix + "80500004",
+                allow_canonical_hex=True), B)
+
     def test_no_coercion_from_decimal_to_integer(self):
         self.assertEqual(strict_uint32(A), A)
         self.assertEqual(strict_uint32(0), 0)
@@ -111,6 +121,11 @@ class DuplicateJSONRejection(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             parse_translation_metadata(metadata)
 
+    def test_nfkc_unicode_compatibility_key_alias_rejected(self):
+        source = good()[:-1] + ',"ｑｕａｌｉｔｙ":' + json.dumps(QUALITY) + '}'
+        with self.assertRaisesRegex(ValueError, "ambiguous Unicode"):
+            parse_translation_metadata(source)
+
     def test_identical_duplicate_rejected_even_if_values_match(self):
         metadata = '{"functions":[{"entryPoint":1,"entryPoint":1}],"quality":' + json.dumps(QUALITY) + '}'
         with self.assertRaisesRegex(ValueError, "Duplicate"):
@@ -158,7 +173,8 @@ class SchemaRejection(unittest.TestCase):
 
     def test_bad_entrypoint_types_values(self):
         for bad in (True, False, None, 0.0, 3.0, A + 0.9, -1, 2**32,
-                    "0x80004004", str(A), "2147500036", "0", "", [],
+                    "+0x80004004", "0x8000_4004", "0x000000000",
+                    str(A), "2147500036", "0", "", [],
                     {}, ["0x80004004"]):
             with self.subTest(bad=repr(bad)):
                 source = json.dumps({"functions": [{"entryPoint": bad}],
