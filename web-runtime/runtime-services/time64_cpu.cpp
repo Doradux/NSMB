@@ -10,7 +10,8 @@
 #define EXPORT
 #endif
 extern "C" {
-uint32_t nsmbw_services_tick_store32(uint32_t guestAddress,uint32_t lowTicks);
+uint32_t nsmbw_services_tick_commit64(uint32_t guestAddress,uint32_t high,uint32_t low);
+void nsmbw_services_tick_reset_ledger();
 uint32_t nsmbw_services_tick_status();
 uint32_t nsmbw_services_tick_is_claimed();
 uint32_t nsmbw_mem_pages();
@@ -24,8 +25,6 @@ uint32_t nsmbw_loop_trace_length();
 namespace {
 constexpr uint32_t Slots=3u;
 std::array<CpuContext,Slots> cpu{};
-uint64_t publishedTicks=0;
-bool published=false;
 uint32_t lastStatus=0;
 // ABI-shaped function: actual C++ CpuContext*, no JS pseudo-register pair.
 // Caller has already committed the checked lowword RAM snapshot.
@@ -42,20 +41,16 @@ uint32_t EXPORT nsmbw_services_time64_publish(uint32_t slot,uint32_t guestAddres
   lastStatus=0;
   if(slot>=Slots){lastStatus=7;return 0;}
   if(nsmbw_services_tick_is_claimed()!=1u){lastStatus=9;return 0;}
-  const uint64_t next=(static_cast<uint64_t>(high)<<32)|low;
-  if(published && next<publishedTicks){lastStatus=10;return 0;}
   // This native checked single-word store fails closed on quota, alignment,
   // unsupported MMIO/GX; a failure NEVER commits time or CpuContext regs.
-  if(nsmbw_services_tick_store32(guestAddress,low)!=1u) {
+  if(nsmbw_services_tick_commit64(guestAddress,high,low)!=1u) {
     lastStatus=nsmbw_services_tick_status();
     if(lastStatus==0)lastStatus=1;
     return 0;
   }
   // No callbacks or allocations after checked memory commit.
-  callSnapshot=next;
+  callSnapshot=(static_cast<uint64_t>(high)<<32)|low;
   nsmbw_synthetic_time64_guest(&cpu[slot]);
-  publishedTicks=next;
-  published=true;
   return 1;
 }
 uint32_t EXPORT nsmbw_services_time64_status(){return lastStatus;}
@@ -72,7 +67,8 @@ uint32_t EXPORT nsmbw_services_time64_reset(){
      nsmbw_loop_cancelled()!=0 || nsmbw_loop_trace_length()!=0){
     lastStatus=11;return 0;
   }
-  cpu={};publishedTicks=0;published=false;callSnapshot=0;
+  cpu={};callSnapshot=0;
+  nsmbw_services_tick_reset_ledger();
   return 1;
 }
 }

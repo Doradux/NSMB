@@ -51,8 +51,13 @@ export function createSyntheticTickClock(module,{address=0x80008000,initial=0n}=
     try {
       const previous=last;
       const word=Number(candidate&0xFFFFFFFFn);
-      const written=store(address,word)===1;
-      const code=status();
+      const upper=Number(candidate>>32n);
+      // Stage high32 in the actual native clock ledger before checked low32.
+      // JS-only monotonic guards cannot protect direct native entrypoints.
+      const staged=store(0xFFFFFFF8,upper)===1;
+      const stageCode=status();
+      const written=staged&&stageCode===0&&store(address,word)===1;
+      const code=written||staged ? status() : stageCode;
       // Clock does NOT advance on quota/MMIO error; safe retry of exact tick
       // never duplicates an external device side effect.
       if(written&&code===0)last=candidate;
