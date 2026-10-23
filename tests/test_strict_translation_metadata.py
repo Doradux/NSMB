@@ -63,15 +63,15 @@ class GoodSyntheticMetadata(unittest.TestCase):
         obj = parse_translation_metadata(good())
         self.assertFalse(obj["map_coverage_verified"])
 
-    def test_hex_string_metadata_entrypoint_is_rejected_not_coerced(self):
-        for encoded in ("0x80500004", "0X80500004"):
-            with self.subTest(encoded=encoded):
-                source = json.loads(good())
-                source["functions"][1]["entryPoint"] = encoded
-                with self.assertRaisesRegex(ValueError, "integer uint32"):
-                    parse_translation_metadata(json.dumps(source), map_addresses=[A, B])
-        # REL addr/size supports 0x strings in a *different* parser, but W01
-        # translation metadata is serialised by C# from actual uint32 numbers.
+    def test_canonical_hex_strings_are_accepted_and_normalized_to_uint32(self):
+        source = json.loads(good())
+        source["functions"][1]["entryPoint"] = "0x80500004"
+        parsed = parse_translation_metadata(json.dumps(source), map_addresses=[A, B])
+        self.assertEqual(parsed["addresses"], [A, B])
+        self.assertEqual(parsed["functions"][1]["entryPoint"], B)
+        for prefix in ("0x", "0X"):
+            self.assertEqual(strict_uint32(prefix + "80500004",
+                allow_canonical_hex=True), B)
 
     def test_no_coercion_from_decimal_to_integer(self):
         self.assertEqual(strict_uint32(A), A)
@@ -174,7 +174,7 @@ class SchemaRejection(unittest.TestCase):
     def test_bad_entrypoint_types_values(self):
         for bad in (True, False, None, 0.0, 3.0, A + 0.9, -1, 2**32,
                     "+0x80004004", "0x8000_4004", "0x000000000",
-                    "0x80004004", "0X80004004", str(A), "2147500036", "0", "", [],
+                    str(A), "2147500036", "0", "", [],
                     {}, ["0x80004004"]):
             with self.subTest(bad=repr(bad)):
                 source = json.dumps({"functions": [{"entryPoint": bad}],
