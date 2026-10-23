@@ -34,13 +34,9 @@ class PeerTranslationProvenance(unittest.TestCase):
         self.assertTrue(p["map_coverage_verified"])
         self.assertTrue(parser.quality_clean(p))
 
-    def test_canonical_hex_positive_but_ambiguous_numeric_strings_fail(self):
+    def test_upstream_uint_json_abi_rejects_all_entrypoint_strings(self):
         m=good()
-        m["functions"][1]["entryPoint"]="0x80500004"
-        p=parser.parse_translation_metadata(json.dumps(m),map_addresses=[A,B])
-        self.assertEqual(p["addresses"],[A,B])
-        self.assertEqual(p["functions"][1]["entryPoint"],B)
-        for entry in (str(B),"+0x80500004","0x8050_0004"," 0x80500004"):
+        for entry in (str(B),"0x80500004","+0x80500004","0x8050_0004"," 0x80500004"):
             with self.subTest(entry=entry):
                 m["functions"][1]["entryPoint"]=entry
                 with self.assertRaises(ValueError):
