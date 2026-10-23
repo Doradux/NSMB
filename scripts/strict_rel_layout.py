@@ -16,6 +16,7 @@ Only invented / public synthetic JSON is needed. No original Nintendo data.
 from __future__ import annotations
 
 import json
+import math
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping
@@ -46,6 +47,53 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _invalid_constant(value: str) -> None:
     raise ValueError(f"Non-finite REL JSON number is prohibited: {value}")
+
+
+def _validate_json_scalars(value: Any) -> None:
+    """Fail closed for unpaired UTF-16 surrogate and non-finite exponent.
+
+    This also checks ignored extension fields: JSON consumers must never
+    disagree about whether their source evidence is well formed.
+    """
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, str):
+            if any(0xD800 <= ord(ch) <= 0xDFFF for ch in item):
+                raise ValueError("Unpaired Unicode surrogate in REL JSON")
+        elif type(item) is float and not math.isfinite(item):
+            raise ValueError("Non-finite REL JSON numeric literal")
+
+
+def _limit_json_depth(text: str, maximum: int = 256) -> None:
+    """Pre-parse bounded nesting without mistaking delimiters in strings."""
+    level = 0
+    quoted = False
+    escaped = False
+    for char in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char in "[{":
+            level += 1
+            if level > maximum:
+                raise ValueError("REL JSON exceeds maximum nesting depth")
+        elif char in "]}":
+            level -= 1
+            # json.loads below validates unmatched closing delimiters.
+    # This pre-check only enforces a safe upper bound; never accepts JSON.
 
 
 def _uint(value: Any, field: str) -> int:
@@ -115,6 +163,7 @@ def parse_rel_sections(
     """
     if not isinstance(text, str):
         raise ValueError("REL layout must be JSON text")
+    _limit_json_depth(text)
     try:
         layout = json.loads(
             text, object_pairs_hook=_unique_object,
@@ -122,6 +171,9 @@ def parse_rel_sections(
         )
     except json.JSONDecodeError as exc:
         raise ValueError("Malformed REL layout JSON") from exc
+    except (RecursionError, UnicodeError) as exc:
+        raise ValueError("Invalid REL layout JSON nesting or Unicode") from exc
+    _validate_json_scalars(layout)
     if not isinstance(layout, dict):
         raise ValueError("REL layout root must be an object")
     modules = layout.get("modules")
