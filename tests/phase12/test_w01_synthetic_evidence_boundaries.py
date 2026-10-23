@@ -66,12 +66,22 @@ class StrictBoundaryAdditions(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIs(report["strict_compatible"], True)
 
-    def test_positive_standard_hex_string_entrypoint(self):
+    def test_positive_extra_upstream_metadata_fields_are_preserved(self):
         m = json.loads(json.dumps(VALID_META))
-        m["functions"][1]["entryPoint"] = "0x80500004"
+        m["quality"]["syntheticBuildId"] = "self-contained-public-fixture"
         report, status = self.audit(metadata=json.dumps(m))
         self.assertEqual(status, 0)
         self.assertIs(report["strict_compatible"], True)
+
+    def test_metadata_hex_string_is_not_numeric_json_entrypoint(self):
+        m = json.loads(json.dumps(VALID_META))
+        m["functions"][1]["entryPoint"] = "0x80500004"
+        self.reject(metadata=json.dumps(m))
+
+    def test_metadata_decimal_string_is_not_numeric_json_entrypoint(self):
+        m = json.loads(json.dumps(VALID_META))
+        m["functions"][1]["entryPoint"] = str(0x80500004)
+        self.reject(metadata=json.dumps(m))
 
     def test_metadata_fractional_entrypoint_must_not_truncate(self):
         m = json.loads(json.dumps(VALID_META))

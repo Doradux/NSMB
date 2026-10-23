@@ -54,8 +54,8 @@ vulnerability in OLD auditor**, not accepted final results.
 
 - Positives independently validate complete synthetic numeric
   \`entryPoint\` and canonical \`0x...\` string entry points.
-- Reject a fractional-but-truncatable function PC; reject strings with
-  Python-only plus prefixes and numeric underscores; detect *identical*
+- Reject a fractional-but-truncatable function PC; reject ALL string
+  `entryPoint` values (including hex/decimal), plus prefixes and numeric underscores; detect *identical*
   duplicate keys in a nested function object (same value still
   ambiguous / no JSON shadowing allowed).
 - Reject extra malformed REL sections with \`exec\` as integer/string,
@@ -86,3 +86,12 @@ Source-identity certification is distinct from a running Wii function.
    fake hash-profile waiver. Mario must separately verify actual owned
    DOL/profile version **privately** before any authentic PPC execution.
 4. Only Mario integrates to main, and only once all gates pass.
+
+**Contract reconciliation:** Luigi published strict metadata SHA `5bacde1`
+explicitly permits only actual JSON uint32 integers for `entryPoint`.
+One first-draft Peach positive expected a legacy hex string to be accepted;
+this was a newly invented, unsupported positive assumption. Peach replaced
+it with a positive for documented harmless extra metadata fields and
+added two negative string-entryPoint cases. This strengthens the RED old
+audit, without loosening any existing negative assertion or changing
+Luigi source. Re-review the current Peach SHA (not old `3e5535d`).
