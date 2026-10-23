@@ -1,0 +1,76 @@
+name: "Phase11 Toad Time64 - source-built Wasm / real Chromium"
+on:
+  push:
+    branches:
+      - agent/toad/phase11-ubuntu-time64
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-ledger:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: "Require actual sandboxed Chrome (never silently skip)"
+        shell: bash
+        run: |
+          browser="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          if [ -z "$browser" ]; then
+            echo "::error::No real Chrome/Chromium installed"
+            exit 1
+          fi
+          echo "NSMB_BROWSER=$browser" >> "$GITHUB_ENV"
+          "$browser" --version
+      - name: "Rebuild genuine C++ Emscripten WebAssembly from current source"
+        shell: bash
+        run: |
+          bash web-runtime/runtime-services/build_tick_linux.sh
+          echo "698d9aec000498f67869c1aeb8443edd3f7e3ed948f996bf8554c324fdd86a3c  web-runtime/runtime-services/dist/joined_tick.wasm" | sha256sum -c -
+      - name: "Real Chrome + Node serialized guest CPU, Time64, interop"
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 web-runtime/runtime-services/test/*.test.mjs | tee "$RUNNER_TEMP/time64-tests.log"
+          grep -q '# skipped 0' "$RUNNER_TEMP/time64-tests.log"
+          node --test --test-concurrency=1 web-runtime/interop/test/*.test.mjs | tee "$RUNNER_TEMP/interop-tests.log"
+          grep -q '# skipped 0' "$RUNNER_TEMP/interop-tests.log"
+          node --test --test-concurrency=1 web-runtime/frame-host/test/*.test.mjs | tee "$RUNNER_TEMP/frame-host-tests.log"
+          grep -q '# skipped 0' "$RUNNER_TEMP/frame-host-tests.log"
+      - uses: actions/checkout@v4
+        with:
+          ref: 70bbe604addbd11948089ef497ba305efe8285d7
+          path: ci/peach-phase10
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: f4c578fd78aa181d24cb3e64be27baa67363232a
+          path: ci/luigi-phase10
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 01bf8a14792e3828c937a6dca2066d5a93bb85a9
+          path: ci/peach-phase11
+          persist-credentials: false
+      - name: "Independent cross-API, fake magic and raw-lowword oracles"
+        shell: bash
+        env:
+          NSMB_P10_CLOCK_ROOT: ${{ github.workspace }}
+          NSMB_PHASE10_TIME64_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=1 \
+            ci/peach-phase10/tests/phase10/native_time64_cross_api.test.mjs \
+            ci/peach-phase10/tests/phase10/native_time64_lowword_guard.test.mjs \
+            ci/luigi-phase10/tests/phase10/time64-native-direct-monotonic.test.mjs \
+            ci/peach-phase11/tests/phase11/native_time64_guards.test.mjs \
+            ci/peach-phase11/tests/phase11/time64_wasm_exports.test.mjs |
+            tee "$RUNNER_TEMP/peers.log"
+          grep -q '# skipped 0' "$RUNNER_TEMP/peers.log"
+# These are SYNTHETIC public Wasm checks, NOT private Wii OS / gameplay.
