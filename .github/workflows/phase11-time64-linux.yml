@@ -55,7 +55,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
-          ref: 5a550a1
+          ref: 01bf8a14792e3828c937a6dca2066d5a93bb85a9
           path: ci/peach-phase11
           persist-credentials: false
       - name: "Independent cross-API, fake magic and raw-lowword oracles"
@@ -69,7 +69,8 @@ jobs:
             ci/peach-phase10/tests/phase10/native_time64_cross_api.test.mjs \
             ci/peach-phase10/tests/phase10/native_time64_lowword_guard.test.mjs \
             ci/luigi-phase10/tests/phase10/time64-native-direct-monotonic.test.mjs \
-            ci/peach-phase11/tests/phase11/native_time64_guards.test.mjs |
+            ci/peach-phase11/tests/phase11/native_time64_guards.test.mjs \
+            ci/peach-phase11/tests/phase11/time64_wasm_exports.test.mjs |
             tee "$RUNNER_TEMP/peers.log"
           grep -q '# skipped 0' "$RUNNER_TEMP/peers.log"
 # These are SYNTHETIC public Wasm checks, NOT private Wii OS / gameplay.
