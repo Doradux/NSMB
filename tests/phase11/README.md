@@ -148,7 +148,7 @@ W03, pins candidate hash: **1/1 PASS**. Normal: 66 symbols; current
 clock: 77, exactly 11 authorized tick/time64 additions; same sole
 \`env.emscripten_resize_heap\` import and no test-only mock exports.
 This JS structural inspection does **NOT** prove typed parameter
-signatures and **IS NOT REA**. REA6.5 is absent on Ubuntu.
+signatures and **IS NOT REA**. REA6.5 was absent at bootstrap; Peach subsequently installed pinned REA6.5 and WABT1.0.42 user tooling (see completed evidence below).
 
 **Protected CI, exact candidate SHA:**
 https://github.com/Doradux/NSMB/actions/runs/39934341917
@@ -163,3 +163,39 @@ ledger and checked CpuContext diagnostic. Two source reviewers still
 required per issue#6: Peach files exact-SHA review, Luigi independently
 files its own; neither may touch main. W01 provenance and original
 DOL SHA remain unwaived STOP.
+
+## REA 6.5.0 and WABT 1.0.42 typed ABI verified on Ubuntu
+
+REA was absent at bootstrap but Peach obtained the official pinned
+rea-agents 6.5.0 npm package and WABT 1.0.42 Linux x64 official
+release, verified against its published sha256 archive checksum.
+No sudo, global install, Nintendo originals, or unsafe browser flags.
+
+Independent REAL REA 6.5.0 inspect-wasm-artifact invocations with
+REA_WABT_BIN_DIRECTORY pointing to the verified binary directory
+saved SHA-bound evidence OUTSIDE public Git:
+
+- /home/marcos/NSMBcowork/notes/Peach-Phase11-REA-normal.json
+  ev_fda7355c1fef8043ea77f96b47a42cb108c7533e2abb385d514e9f61996fd35a
+- /home/marcos/NSMBcowork/notes/Peach-Phase11-REA-time64.json
+  ev_54efefefdf95c60d55944cb50c631d1b895129a6012fe0606ee7cecb6ff4fdf2
+
+NEW tests/phase11/rea_time64_abi.py independently PASS on exact
+Toad b1d8f49, checking actual evidence subject+artifact SHA match
+compiled bytes, WABT valid, the full kind/params/results/signature
+of all 66 preserved normal exports and the one identical import;
+candidate 77 exports add ONLY 11 reviewed native tick/time64 entries
+with no test-only mock.
+
+Actual SHA normal 32d4313e0ab8c27a6146d132492bd2f773fdb7c817534d2d4fb54e5fc6d185a1,
+time64 698d9aec000498f67869c1aeb8443edd3f7e3ed948f996bf8554c324fdd86a3c.
+
+Reproduce (exact Toad clean detached checkout):
+ python3 -B tests/phase11/rea_time64_abi.py \
+   --candidate-root /home/marcos/NSMBcowork/worktrees/Peach-Toad-Phase11-Review \
+   --normal-rea-json /home/marcos/NSMBcowork/notes/Peach-Phase11-REA-normal.json \
+   --time64-rea-json /home/marcos/NSMBcowork/notes/Peach-Phase11-REA-time64.json
+
+This REA typed ABI proof is STATIC, distinct from the independent
+native WebAssembly.Module exports test1/1 and actual Node/Chrome
+runtime. Still no authentic Wii OS/GX/IOS/gameplay.
