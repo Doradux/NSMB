@@ -21,12 +21,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import unicodedata
 from collections.abc import Iterable
 from typing import Any
 
 UINT32_MAX = 0xFFFFFFFF
 QUALITY_COUNTERS = ("unsupportedInstructionCount", "invalidSsaFunctionCount")
+_CANONICAL_HEX32 = re.compile(r"0[xX][0-9a-fA-F]{1,8}\Z")
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -82,16 +84,25 @@ def load_translation_json(text: str) -> dict[str, Any]:
     return data
 
 
-def strict_uint32(value: object, *, field: str = "entryPoint") -> int:
-    """Require an actual JSON uint32 integer; no textual or float coercion.
+def strict_uint32(
+    value: object, *, field: str = "entryPoint", allow_canonical_hex: bool = False
+) -> int:
+    """Require uint32, optionally accepting ONLY an unambiguous 0xHEX string.
 
-    Upstream's C# BaseTranslationFunctionMetadata.EntryPoint is `uint` and
-    serializes as a JSON number. A canonical hexadecimal *REL layout* string
-    is NOT a valid translator metadata entryPoint value.
+    Parsed translator metadata may legitimately encode the entry point in
+    canonical hexadecimal form. MAP addresses supplied by the audit must
+    already be parsed uint32 integers, never arbitrary textual input.
     """
-    if type(value) is not int or not 0 <= value <= UINT32_MAX:
-        raise ValueError(f"{field} must be an integer uint32")
-    return value
+    if type(value) is int:
+        result = value
+    elif (allow_canonical_hex and isinstance(value, str) and
+          _CANONICAL_HEX32.fullmatch(value)):
+        result = int(value, 16)
+    else:
+        raise ValueError(f"{field} must be an integer uint32 or canonical 0xHEX")
+    if not 0 <= result <= UINT32_MAX:
+        raise ValueError(f"{field} must be an integer uint32 or canonical 0xHEX")
+    return result
 
 
 def _quality_counts(raw: object) -> dict[str, Any]:
@@ -167,12 +178,13 @@ def parse_translation_metadata(
     entries: list[dict[str, Any]] = []
     addresses: list[int] = []
     seen: set[int] = set()
-    for item in raw_functions:
+    for index, item in enumerate(raw_functions):
         if not isinstance(item, dict):
             raise ValueError("Translation function must be a JSON object")
         if "entryPoint" not in item:
             raise ValueError("Translation function missing entryPoint")
-        address = strict_uint32(item["entryPoint"], field="entryPoint")
+        address = strict_uint32(item["entryPoint"], field="entryPoint",
+                                allow_canonical_hex=True)
         if address in seen:
             raise ValueError("Repeated translation function address")
         seen.add(address)
