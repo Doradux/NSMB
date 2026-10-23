@@ -87,3 +87,31 @@ mismatch is a **separate unwaived STOP**.
 
 The authentic Nintendo game is NOT running in browser. The only
 executed binary is a copyright-free public synthetic diagnostic.
+
+## Peer authored Phase10 W01 tests (not copied into our public branch)
+
+Independently executed against the SAME exact published old auditor
+`110697c` on Ubuntu with `python3 -B`, retaining each peer's
+original assertions in temporary read-only copies from Git objects:
+
+- Luigi exact `c55dc33`, `test_w01_evidence_boundary.py`:
+  **15 methods, 8 expected FAIL assertions**.
+- Toad exact `117f1fe`, `test_w01_rel_structure.py`:
+  **6 methods, 4 ERRORs**: invalid REL top-level lists and `null`/
+  list section maps trigger uncontrolled exceptions rather than
+  the required typed `ValueError` policy. Two positive controls pass.
+
+These are meaningful independent RED evidence, NOT 'skips' or
+passing QA. No Nintendo source data needed. Source references are
+published peer commits; only Mario modifies the audit implementation.
+
+## Review scope
+
+The Lua/REL runtime loader may intentionally overlay modules at
+identical addresses at different times, but source static compatibility
+MUST NOT infer overlay lifetimes without explicit evidence. The
+Phase10 overlap negatives require fail-closed rejection *in the
+absence of such proof*; they do NOT claim every overlapping runtime
+layout is inherently invalid. Peer tests focus on controlled errors,
+not inventing runtime ownership. Only a clean corrected Mario SHA
+with source provenance can unlock any authentic Wii guest call.
