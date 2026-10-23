@@ -43,13 +43,17 @@ also exported for Mario if he needs to stage reporting separately.
 ## Contract
 
 - JSON parser rejects any duplicate *recursively*, including JSON
-  escape-decoded key aliases (`qual\\u0069ty`) even when values agree.
+  escape-decoded key aliases and NFKC Unicode compatibility aliases (`qual\\u0069ty`) even when values agree.
   Duplicate keys inside unknown nested objects also abort parsing.
 - Invalid root, empty/wrong functions array, non-object function, missing
   entryPoint, repeat of the **numeric** entry address → `ValueError`.
-- `entryPoint` must be a Python `int` whose JSON source was a number
-  and lies within `0 .. 0xFFFFFFFF`. Never `bool`, `float`,
-  decimal/hexadecimal string, negative, overflow, or truncation.
+- `entryPoint` must be an actual JSON integer `uint32` OR the
+  documented **canonical `0xHEX` string** (`0x`/`0X`, 1..8 hex digits).
+  Both normalize to Python int. Never accept `bool`, `float`,
+  decimal string, `+0x...`, `0x80_000...`, negative, overflow,
+  space/underscore separators, numeric truncation or coercion.
+  This explicitly preserves Peach Phase12's positive canonical hexadecimal
+  compatibility oracle. MAP caller inputs remain required numeric int.
 - `quality` must be a JSON object with
   `unsupportedInstructionCount` and `invalidSsaFunctionCount`, each
   an actual integer `>=0` (never bool/float/string/null). Both are mandatory.
@@ -73,8 +77,8 @@ Original public W01 `110697c` with a synthetic in-memory DOL/REL/MAP:
 - old audit catches the boolean address as unmapped (status3), helper
   additionally rejects malformed type immediately, rather than coercing.
 
-Standalone test suite **33/33 PASS**, all pre-existing author tests in the
-isolated worktree with our additional tests **64/64 PASS**. Zero skipped.
+Standalone test suite **35/35 PASS**, all pre-existing author tests in the
+isolated worktree with our additional tests **66/66 PASS**. Zero skipped.
 This is RED-old/GREEN-parser (not a modified Mario auditor). The existing
 full audit is STILL vulnerable and *must not* be marked green merely because
 the helper exists on Luigi's branch.

@@ -21,19 +21,27 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import unicodedata
 from collections.abc import Iterable
 from typing import Any
 
 UINT32_MAX = 0xFFFFFFFF
 QUALITY_COUNTERS = ("unsupportedInstructionCount", "invalidSsaFunctionCount")
+_CANONICAL_HEX32 = re.compile(r"0[xX][0-9a-fA-F]{1,8}\Z")
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     """json unescapes Unicode keys BEFORE passing them to this hook."""
     result: dict[str, Any] = {}
+    canonical_keys: set[str] = set()
     for key, value in pairs:
-        if key in result:
-            raise ValueError("Duplicate JSON object key")
+        # JSON escape decoding happens first. NFKC also prevents fullwidth
+        # Unicode aliases from silently shadowing later consumers' keys.
+        normalized = unicodedata.normalize("NFKC", key)
+        if normalized in canonical_keys:
+            raise ValueError("Duplicate or ambiguous Unicode JSON object key")
+        canonical_keys.add(normalized)
         result[key] = value
     return result
 
@@ -76,11 +84,25 @@ def load_translation_json(text: str) -> dict[str, Any]:
     return data
 
 
-def strict_uint32(value: object, *, field: str = "entryPoint") -> int:
-    """Require an actual JSON uint32 number; NO coercion or string parsing."""
-    if type(value) is not int or not 0 <= value <= UINT32_MAX:
-        raise ValueError(f"{field} must be an integer uint32")
-    return value
+def strict_uint32(
+    value: object, *, field: str = "entryPoint", allow_canonical_hex: bool = False
+) -> int:
+    """Require uint32, optionally accepting ONLY an unambiguous 0xHEX string.
+
+    Parsed translator metadata may legitimately encode the entry point in
+    canonical hexadecimal form. MAP addresses supplied by the audit must
+    already be parsed uint32 integers, never arbitrary textual input.
+    """
+    if type(value) is int:
+        result = value
+    elif (allow_canonical_hex and isinstance(value, str) and
+          _CANONICAL_HEX32.fullmatch(value)):
+        result = int(value, 16)
+    else:
+        raise ValueError(f"{field} must be an integer uint32 or canonical 0xHEX")
+    if not 0 <= result <= UINT32_MAX:
+        raise ValueError(f"{field} must be an integer uint32 or canonical 0xHEX")
+    return result
 
 
 def _quality_counts(raw: object) -> dict[str, Any]:
@@ -161,12 +183,15 @@ def parse_translation_metadata(
             raise ValueError("Translation function must be a JSON object")
         if "entryPoint" not in item:
             raise ValueError("Translation function missing entryPoint")
-        address = strict_uint32(item["entryPoint"], field="entryPoint")
+        address = strict_uint32(item["entryPoint"], field="entryPoint",
+                                allow_canonical_hex=True)
         if address in seen:
             raise ValueError("Repeated translation function address")
         seen.add(address)
         addresses.append(address)
-        entries.append(dict(item))
+        normalized_function = dict(item)
+        normalized_function["entryPoint"] = address
+        entries.append(normalized_function)
     if map_addresses is not None:
         require_complete_map_coverage(map_addresses, addresses)
     return {
