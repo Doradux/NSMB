@@ -32,4 +32,5 @@ else
  echo "Emscripten em++ or Docker required (no stale binary fallback)" >&2
  exit 1
 fi
+chmod 0644 web-runtime/runtime-services/dist/joined_tick.mjs web-runtime/runtime-services/dist/joined_tick.wasm
 sha256sum web-runtime/runtime-services/dist/joined_tick.wasm
