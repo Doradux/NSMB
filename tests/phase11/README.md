@@ -115,3 +115,51 @@ absence of such proof*; they do NOT claim every overlapping runtime
 layout is inherently invalid. Peer tests focus on controlled errors,
 not inventing runtime ownership. Only a clean corrected Mario SHA
 with source provenance can unlock any authentic Wii guest call.
+
+
+## Exact Phase11 NEW Toad fix review after publication
+
+Toad published **clean** branch \`agent/toad/phase11-ubuntu-time64\`,
+exact source HEAD \`b1d8f49914410db1579b0fa0844333f586b41f22\`,
+including its prior fix \`29b7d74\`. A NEW independent detached
+Peach-owned worktree was created at
+\`/home/marcos/NSMBcowork/worktrees/Peach-Toad-Phase11-Review\`.
+No sources in the Toad owned worktree were modified.
+
+Using \`NSMB_P10_CLOCK_ROOT\`, \`NSMB_P11_TIME64_ROOT\`,
+\`NSMB_PHASE7_TICK_ROOT\`, and \`NSMB_PHASE6_TICK_ROOT\` all pointed
+to this exact detached checkout, the 6 old Peach RED tests, 3 new
+Phase11 guards and 5 historical claim/facade tests become
+**14/14 PASS, 0 failures, 0 skips** on ACTUAL compiled WebAssembly
+with Node22. The direct-native regression is rejected with typed
+status10, unpaired lowword with status12, wrong magic with status7;
+RAM/pages/CPU/callbacks do not mutate on failure.
+
+**Independent source rebuild:** pinned unprivileged Docker Emscripten
+\`emscripten/emsdk@sha256:fb7864e...\` using the NEW
+\`web-runtime/runtime-services/build_tick_linux.sh\` on the
+*Peach-owned detached checkout*. Before and after Wasm SHA256 matched
+byte-for-byte, \`698d9aec000498f67869c1aeb8443edd3f7e3ed948f996bf8554c324fdd86a3c\`.
+Checkout remained clean.
+
+NEW \`tests/phase11/time64_wasm_exports.test.mjs\` independently
+compares the compiled binary import/export surface against normal
+W03, pins candidate hash: **1/1 PASS**. Normal: 66 symbols; current
+clock: 77, exactly 11 authorized tick/time64 additions; same sole
+\`env.emscripten_resize_heap\` import and no test-only mock exports.
+This JS structural inspection does **NOT** prove typed parameter
+signatures and **IS NOT REA**. REA6.5 is absent on Ubuntu.
+
+**Protected CI, exact candidate SHA:**
+https://github.com/Doradux/NSMB/actions/runs/39934341917
+real Chrome 155, pinned Emscripten Docker rebuild hash and no skips:
+runtime 70/70; interop 27/27; host+real browser 109/109;
+Peach/Luigi adversarial 10/10. **216/216 PASS, 0 skips**.
+CI does not independently certify REA types and the original Wii
+game remains unavailable.
+
+Time64 is therefore approvable **ONLY** for the synthetic trusted-host
+ledger and checked CpuContext diagnostic. Two source reviewers still
+required per issue#6: Peach files exact-SHA review, Luigi independently
+files its own; neither may touch main. W01 provenance and original
+DOL SHA remain unwaived STOP.
