@@ -73,10 +73,12 @@ class StrictBoundaryAdditions(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIs(report["strict_compatible"], True)
 
-    def test_metadata_hex_string_is_not_numeric_json_entrypoint(self):
+    def test_positive_canonical_hex_entrypoint_string(self):
         m = json.loads(json.dumps(VALID_META))
         m["functions"][1]["entryPoint"] = "0x80500004"
-        self.reject(metadata=json.dumps(m))
+        report, status = self.audit(metadata=json.dumps(m))
+        self.assertEqual(status, 0)
+        self.assertIs(report["strict_compatible"], True)
 
     def test_metadata_decimal_string_is_not_numeric_json_entrypoint(self):
         m = json.loads(json.dumps(VALID_META))

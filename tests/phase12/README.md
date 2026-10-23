@@ -1,7 +1,7 @@
 # Peach — Phase 12 independent W01 QA (synthetic, RED-first)
 
-**Owner/worktree:** Peach; \`/home/marcos/NSMBcowork/worktrees/Peach-P12-W01\`;
-branch \`agent/peach/phase12-w01-qa\` from public **W01 auditor \`110697c\`**.
+**Owner/worktree:** Peach; `/home/marcos/NSMBcowork/worktrees/Peach-P12-W01`;
+branch `agent/peach/phase12-w01-qa` from public **W01 auditor `110697c`**.
 This branch is **tests and documentation ONLY**. No production auditor or
 Luigi/Toad helper modified; main and Mario's integration untouched.
 
@@ -12,11 +12,11 @@ translated game functions, private hashes or local sudo credentials.
 
 ## Run against an exact clean W01 checkout
 
-Set \`NSMB_W01_AUDIT_ROOT\` to the candidate's *immutable, clean exact SHA*
-directory. For a RED baseline use this own test worktree (\`110697c\`).
+Set `NSMB_W01_AUDIT_ROOT` to the candidate's *immutable, clean exact SHA*
+directory. For a RED baseline use this own test worktree (`110697c`).
 Never treat another agent's dirty source tree as a SHA-specific approval.
 
-\`\`\`bash
+```bash
 cd /home/marcos/NSMBcowork/worktrees/Peach-P12-W01
 export NSMB_W01_AUDIT_ROOT=/home/marcos/NSMBcowork/worktrees/Peach-P12-W01
 export PYTHONDONTWRITEBYTECODE=1
@@ -25,24 +25,24 @@ python3 -B -m unittest discover -s tests/phase7 -p 'test_audit_*.py' -v
 python3 -B -m unittest discover -s tests/phase9 -p 'test_w01_rel_duplicates.py' -v
 python3 -B -m unittest discover -s tests/phase10 -p 'test_w01_*.py' -v
 python3 -B -m unittest discover -s tests/phase12 -p 'test_w01_*.py' -v
-\`\`\`
+```
 
 Peer published test modules (do **not** silently duplicate/copy or change):
-Luigi \`c55dc33\`, \`tests/phase10/test_w01_evidence_boundary.py\`,
-Toad \`117f1fe\`, \`tests/phase10/test_w01_rel_structure.py\`.
+Luigi `c55dc33`, `tests/phase10/test_w01_evidence_boundary.py`,
+Toad `117f1fe`, `tests/phase10/test_w01_rel_structure.py`.
 Execute them in a **separate temporary test dir** with
-\`PYTHONPATH=$NSMB_W01_AUDIT_ROOT/scripts\`; make every comparison against
+`PYTHONPATH=$NSMB_W01_AUDIT_ROOT/scripts`; make every comparison against
 the SAME clean candidate and re-run all positives.
 
 ### Actual independent Ubuntu baseline on auditor 110697c (2026-10-23)
 
 | Suite | Total methods | Result |
 |---|---:|---|
-| Original auditor author \`tests/test_audit*.py\` | 31 | **31 PASS** |
+| Original auditor author `tests/test_audit*.py` | 31 | **31 PASS** |
 | Peach phase7 fail-closed | 18 | **19 FAIL assertions** across the methods |
 | Peach phase9 REL duplicate JSON | 5 | **4 FAIL** |
 | Peach phase10 ambiguous executable / probe | 10 | **7 FAIL** |
-| Peach phase12 extra boundary cases | 12 | **2 PASS / 10 FAIL** |
+| Peach phase12 extra boundary cases | 14 | **3 PASS / 11 FAIL** |
 | Luigi phase10 published tests, unchanged | 15 | **8 FAIL** |
 | Toad phase10 published tests, unchanged | 6 | **4 uncontrolled ERRORs** |
 
@@ -53,24 +53,24 @@ vulnerability in OLD auditor**, not accepted final results.
 ### Specific new Phase12 oracles
 
 - Positives independently validate complete synthetic numeric
-  \`entryPoint\` and canonical \`0x...\` string entry points.
-- Reject a fractional-but-truncatable function PC; reject ALL string
-  `entryPoint` values (including hex/decimal), plus prefixes and numeric underscores; detect *identical*
+  `entryPoint` and canonical `0x...` string entry points.
+- Reject a fractional-but-truncatable function PC; reject ambiguous string
+  `entryPoint` values (decimal, plus prefixes, numeric underscores) while preserving canonical `0xHEX`; detect *identical*
   duplicate keys in a nested function object (same value still
   ambiguous / no JSON shadowing allowed).
-- Reject extra malformed REL sections with \`exec\` as integer/string,
+- Reject extra malformed REL sections with `exec` as integer/string,
   even when all visible executable function coverage remains valid;
   reject Python-only permissive plus-prefix addresses and underscore
   sizes, while preserving a valid ordinary REL.
 - Reject analogous permissive MAP number formatting. Test requires
-  canonical evidence grammar rather than allowing Python's \`int()\`
+  canonical evidence grammar rather than allowing Python's `int()`
   special syntax. These are intentionally narrow POLICY assertions,
   and reviewers should assess this policy, not alter expectations to
   make the existing auditor green.
 
 **Static gate**: original pinned Wii DOL SHA mismatch remains a separate
 HARD STOP even if all synthetic tests eventually become green. A
-\`--probe\` investigation of an explicit checksum mismatch does NOT
+`--probe` investigation of an explicit checksum mismatch does NOT
 certify source identity nor allow missing/ambiguous MAP, metadata, REL.
 Source-identity certification is distinct from a running Wii function.
 
@@ -82,16 +82,49 @@ Source-identity certification is distinct from a running Wii function.
    NEW clean W01 SHA. Retest full baseline, original author tests,
    peer suites, Phase12 new cases and CLI exit codes against exact SHA.
 3. Require expected **GREEN** on all synthetic positives and negatives
-   with zero skipped; no \`AttributeError\`, uncontrolled exceptions or
+   with zero skipped; no `AttributeError`, uncontrolled exceptions or
    fake hash-profile waiver. Mario must separately verify actual owned
    DOL/profile version **privately** before any authentic PPC execution.
 4. Only Mario integrates to main, and only once all gates pass.
 
-**Contract reconciliation:** Luigi published strict metadata SHA `5bacde1`
-explicitly permits only actual JSON uint32 integers for `entryPoint`.
-One first-draft Peach positive expected a legacy hex string to be accepted;
-this was a newly invented, unsupported positive assumption. Peach replaced
-it with a positive for documented harmless extra metadata fields and
-added two negative string-entryPoint cases. This strengthens the RED old
-audit, without loosening any existing negative assertion or changing
-Luigi source. Re-review the current Peach SHA (not old `3e5535d`).
+**Clarified final policy:** Luigi revised helper at exact `121279a` to accept
+only JSON uint32 integers or precisely formatted canonical `0xHEX`
+strings (both normalized to uint32); this preserves the first-draft Peach
+positive while rejecting every ambiguous `+0x`, decimal-string and underscore
+case. In the interim Peach had briefly made hex a negative based on the
+old helper `5bacde1`; the revised documented ABI resolves the discrepancy.
+There is no weakening of the original 11 independent RED cases; current
+Phase12 totals are 3 positives and 11 expected failing negatives on 110697c.
+All subsequent reviews must target latest exact QA SHA.
+
+## Independent HELPER reviews (not integrated W01)
+
+- Luigi strict metadata clean `121279a`: **35/35 author PASS**, plus
+  Peach's explicit `review_metadata_helper.py` **7/7 PASS** on an
+  isolated detached checkout, zero skips. The parser now accepts true
+  JSON uint32 numbers and canonical `0xHEX` strings; disallows fractional,
+  duplicate/NFKC Unicode, ambiguous plus/underscore string and MAP
+  incompleteness. No Mario W01 auditor was modified.
+- Toad strict REL initial `faae59a`: **39/39 author PASS** but Peach's
+  independent `review_rel_helper.py` **2 PASS / 2 FAIL**. JSON exponent
+  `1e9999` silently became infinity in unknown nested fields, contrary
+  to the stated fail-closed schema. Formal CHANGES_REQUESTED recorded.
+- Toad fixed CLEAN `ed1ddb5`: source independently reviewed and built-in
+  REL tests **44/44 PASS**, full combined author suite **75/75 PASS**,
+  Peach `review_rel_helper.py` **4/4 PASS**, zero skips, clean detached
+  checkout. Both old exponent-negative RED cases now correctly reject.
+
+These are parser/helper-only approvals. They do not validate Mario's
+final `analyze`/CLI wiring, original DOL hash, runtime compatibility or
+Nintendo executable behavior. Keep whole W01 gate STOP until a new clean
+Mario SHA is independently re-tested with the old RED suite and the new
+positive controls.
+
+Explicit peer review commands (CLEAN SHA-only checkout, no skips):
+
+```bash
+NSMB_P12_REL_HELPER_ROOT=/home/marcos/NSMBcowork/worktrees/Peach-P12-Toad-RelFixed \
+ python3 -B tests/phase12/review_rel_helper.py
+NSMB_P12_METADATA_HELPER_ROOT=/home/marcos/NSMBcowork/worktrees/Peach-P12-Luigi-MetadataFinal \
+ python3 -B tests/phase12/review_metadata_helper.py
+```
