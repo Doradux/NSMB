@@ -42,7 +42,7 @@ the SAME clean candidate and re-run all positives.
 | Peach phase7 fail-closed | 18 | **19 FAIL assertions** across the methods |
 | Peach phase9 REL duplicate JSON | 5 | **4 FAIL** |
 | Peach phase10 ambiguous executable / probe | 10 | **7 FAIL** |
-| Peach phase12 extra boundary cases | 14 | **3 PASS / 11 FAIL** |
+| Peach phase12 extra boundary cases | 14 | **2 PASS / 12 FAIL** |
 | Luigi phase10 published tests, unchanged | 15 | **8 FAIL** |
 | Toad phase10 published tests, unchanged | 6 | **4 uncontrolled ERRORs** |
 
@@ -53,9 +53,9 @@ vulnerability in OLD auditor**, not accepted final results.
 ### Specific new Phase12 oracles
 
 - Positives independently validate complete synthetic numeric
-  `entryPoint` and canonical `0x...` string entry points.
+  `entryPoint` and harmless extra upstream metadata fields.
 - Reject a fractional-but-truncatable function PC; reject ambiguous string
-  `entryPoint` values (decimal, plus prefixes, numeric underscores) while preserving canonical `0xHEX`; detect *identical*
+  `entryPoint` values (including `0xHEX`, decimal, plus prefixes and numeric underscores); detect *identical*
   duplicate keys in a nested function object (same value still
   ambiguous / no JSON shadowing allowed).
 - Reject extra malformed REL sections with `exec` as integer/string,
@@ -87,22 +87,24 @@ Source-identity certification is distinct from a running Wii function.
    DOL/profile version **privately** before any authentic PPC execution.
 4. Only Mario integrates to main, and only once all gates pass.
 
-**Clarified final policy:** Luigi revised helper at exact `121279a` to accept
-only JSON uint32 integers or precisely formatted canonical `0xHEX`
-strings (both normalized to uint32); this preserves the first-draft Peach
-positive while rejecting every ambiguous `+0x`, decimal-string and underscore
-case. In the interim Peach had briefly made hex a negative based on the
-old helper `5bacde1`; the revised documented ABI resolves the discrepancy.
-There is no weakening of the original 11 independent RED cases; current
-Phase12 totals are 3 positives and 11 expected failing negatives on 110697c.
-All subsequent reviews must target latest exact QA SHA.
+**Definitive upstream ABI contract:** independent source inspection of
+`upstream-nsmbw/translator/src/Translator.Core/Mods/BaseTranslationOutputMetadata.cs`
+identifies `BaseTranslationFunctionMetadata.EntryPoint` as a C# `uint`.
+The upstream metadata serializer therefore emits JSON numeric uint32,
+NOT string `0xHEX`; REL layout address strings belong to a separate
+schema. Luigi final helper `a4f4565` enforces this contract. Earlier
+helper `121279a` had briefly allowed canonical hex for compatibility,
+but public upstream type evidence superseded that assumption. Peach's
+newly written Phase12 test now correctly requires even hex strings to
+be rejected, while all original negatives remain unchanged.
+Old audit baseline: 14 methods, 2 positive PASS and 12 negative FAIL.
 
 ## Independent HELPER reviews (not integrated W01)
 
-- Luigi strict metadata clean `121279a`: **35/35 author PASS**, plus
+- Luigi strict metadata clean `a4f4565`: **35/35 author PASS**, plus
   Peach's explicit `review_metadata_helper.py` **7/7 PASS** on an
   isolated detached checkout, zero skips. The parser now accepts true
-  JSON uint32 numbers and canonical `0xHEX` strings; disallows fractional,
+  JSON uint32 numbers and rejects all entryPoint strings, including canonical `0xHEX`; disallows fractional,
   duplicate/NFKC Unicode, ambiguous plus/underscore string and MAP
   incompleteness. No Mario W01 auditor was modified.
 - Toad strict REL initial `faae59a`: **39/39 author PASS** but Peach's
@@ -125,6 +127,29 @@ Explicit peer review commands (CLEAN SHA-only checkout, no skips):
 ```bash
 NSMB_P12_REL_HELPER_ROOT=/home/marcos/NSMBcowork/worktrees/Peach-P12-Toad-RelFixed \
  python3 -B tests/phase12/review_rel_helper.py
-NSMB_P12_METADATA_HELPER_ROOT=/home/marcos/NSMBcowork/worktrees/Peach-P12-Luigi-MetadataFinal \
+NSMB_P12_METADATA_HELPER_ROOT=/home/marcos/NSMBcowork/worktrees/Peach-P12-Luigi-NumericFinal \
  python3 -B tests/phase12/review_metadata_helper.py
 ```
+
+## Later clean metadata helper SHA — upstream schema review
+
+Luigi published a subsequent clean `cd08d94742695801ccd62a7d121ba785e1be5d3b`
+that again accepts `entryPoint: "0x80500004"`. Independent Peach detached
+review: author **35/35 PASS**; the new explicit
+`review_metadata_helper.py` now gets **6 PASS / 1 FAIL** because the
+helper accepts this unsupported string type. Exact upstream C# source
+`upstream-nsmbw/translator/src/Translator.Core/Mods/BaseTranslationOutputMetadata.cs`
+defines `BaseTranslationFunctionMetadata.EntryPoint` as **uint**;
+`Translator.Core/IO/JsonOutput.cs` uses default
+`JsonSerializerOptions` number serialization without `WriteAsString`.
+No publicly verified translator emits string `entryPoint` evidence.
+Peach recorded **CHANGES_REQUESTED** against exact `cd08d94` and
+requested numeric-only (previous `a4f4565` 7/7 independent PASS) or
+explicit independent producer evidence that justifies expanded schema.
+This is a SOURCE-ID contract, not a request to make tests green by
+weakening assertions; keeping strict numeric JSON avoids laundering
+invented translation manifests. Toad's **REL** `addr`/`size` hex strings
+are a different, documented input format and remain accepted.
+
+Keep Mario W01 status STOP and the private original DOL/profile SHA
+mismatch untouched. No testing of real Wii code has occurred.
