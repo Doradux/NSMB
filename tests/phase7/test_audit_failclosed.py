@@ -112,8 +112,24 @@ class W01FailClosedPhase5(unittest.TestCase):
         with self.assertRaises(ValueError):auditor.dol_sections(bytes(b))
 
     def test_valid_extra_translated_func_and_empty_map_rules(self):
-        r,code=audit(meta=metadata([{"entryPoint":0x80004004},{"entryPoint":0x80004008}]))
+        # Phase13 producer-evidence correction: metadata reporting another
+        # translated entry does NOT prove that the independent MAP witnessed
+        # that entry. Strict compatibility requires one-to-one MAP coverage,
+        # absent a separately reviewed alternative completeness contract.
+        both=metadata([{"entryPoint":0x80004004},{"entryPoint":0x80004008}])
+        try:
+            r,code=audit(meta=both)
+        except ValueError:
+            pass  # Structural failure is an acceptable fail-closed outcome.
+        else:
+            self.assertFalse(r["strict_compatible"])
+            self.assertNotEqual(code,0)
+
+        # Restore a *genuine* positive with identical entries in both files.
+        r,code=audit(meta=both,map_text="80004004 a\n80004008 b")
         self.assertTrue(r["strict_compatible"]);self.assertEqual(code,0)
+
+        # Existing negative assertions preserved, byte-for-byte.
         r,code=audit(map_text="")
         self.assertFalse(r["strict_compatible"]);self.assertNotEqual(code,0)
         r,code=audit(map_text="80004004 a\n80004008 b")
