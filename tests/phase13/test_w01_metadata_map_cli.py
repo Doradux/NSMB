@@ -67,8 +67,8 @@ class ExactAuditorContract(unittest.TestCase):
         """Schema errors may raise ValueError; evidence failures must not be green."""
         try:
             report, code = self.inspect(**kwargs)
-        except (ValueError, KeyError, TypeError):
-            return
+        except ValueError:
+            return  # Only a controlled schema failure is an acceptable rejection.
         self.assertIs(report["strict_compatible"], False)
         self.assertNotEqual(code, 0)
 
@@ -102,25 +102,38 @@ class ExactAuditorContract(unittest.TestCase):
         self.assertIs(report["strict_compatible"], False)
 
     def test_fractional_entrypoint_must_not_truncate_into_valid_address(self):
-        self.reject(meta=metadata(A + 0.25))
+        with self.assertRaises(ValueError):
+            self.inspect(meta=metadata(A + 0.25))
 
     def test_boolean_entrypoint_is_structurally_invalid_not_coerced(self):
-        self.reject(meta=metadata(True))
+        with self.assertRaises(ValueError):
+            self.inspect(meta=metadata(True))
+        self._cli(expected=4, meta=metadata(True))
+
+    def test_missing_function_entrypoint_is_controlled_valueerror_and_cli_four(self):
+        bad = json.dumps({"functions": [{}], "quality": QUALITY})
+        with self.assertRaises(ValueError):
+            self.inspect(meta=bad)
+        self._cli(expected=4, meta=bad)
 
     def test_hexadecimal_string_metadata_entrypoint_is_not_csharp_uint(self):
-        self.reject(meta=metadata("0x80004004"))
+        with self.assertRaises(ValueError):
+            self.inspect(meta=metadata("0x80004004"))
 
     def test_decimal_string_metadata_entrypoint_is_not_csharp_uint(self):
-        self.reject(meta=metadata(str(A)))
+        with self.assertRaises(ValueError):
+            self.inspect(meta=metadata(str(A)))
 
     def test_uint32_overflow_does_not_map_into_guest_range(self):
-        self.reject(meta=metadata(1 << 32))
+        with self.assertRaises(ValueError):
+            self.inspect(meta=metadata(1 << 32))
 
     def test_duplicate_quality_with_unicode_escaped_key_cannot_shadow(self):
         raw = ('{"functions":[{"entryPoint":' + str(A) + '}],'
                '"quality":{"unsupportedInstructionCount":9},'
                '"qual\\u0069ty":' + json.dumps(QUALITY) + "}")
-        self.reject(meta=raw)
+        with self.assertRaises(ValueError):
+            self.inspect(meta=raw)
 
     def test_extra_translation_not_documented_by_map_must_not_be_certified(self):
         self.reject(meta=metadata(A, B))
@@ -129,10 +142,14 @@ class ExactAuditorContract(unittest.TestCase):
         self.reject(map_text=MAP + "80004008 extra\n")
 
     def test_map_plus_prefix_is_not_canonical(self):
-        self.reject(map_text="+80004004 fake\n")
+        with self.assertRaises(ValueError):
+            self.inspect(map_text="+80004004 fake\n")
+        self._cli(expected=4, map_text="+80004004 fake\n")
 
     def test_map_underscore_is_not_canonical(self):
-        self.reject(map_text="8000_4004 fake\n")
+        with self.assertRaises(ValueError):
+            self.inspect(map_text="8000_4004 fake\n")
+        self._cli(expected=4, map_text="8000_4004 fake\n")
 
     def test_malformed_translator_json_returns_controlled_cli_four(self):
         self._cli(expected=4, meta='{"functions":[', probe=False)
