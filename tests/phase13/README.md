@@ -37,7 +37,7 @@ Also test historic PR #2/#3/#4 untouched, zero skipped.
 - Phase9 5 methods, 4 FAIL.
 - Phase10 10 methods, 7 FAIL.
 - Phase12 14 methods, 12 FAIL.
-- Phase13 20 new methods, 13 failing assertions (including nested
+- Phase13 21 new methods, 14 failing assertions (including nested
   subtests MAP two forms and CLI probe both flags), 0 skip, 7 pass.
 All 13 RED are old-auditor vulnerabilities and must become GREEN on the
 new integrator, without changing independent negative assertions.
@@ -64,3 +64,15 @@ Passing every synthetic W01 gate would NOT resolve user original DOL
 SHA/profile mismatch (separate hard STOP), identify the authentic Wii
 function, prove REL lifetimes/relocations, OS/IOS/GX compatibility or
 gameplay. No Nintendo original data or code translated here.
+
+## Exact independent Toad review improvement
+
+Toad reviewed Peach SHA 6fc94bb and APPROVED its test-only intent
+with 110/110 author and old-auditor 20 methods: 7 PASS, 13 RED.
+He correctly noted the method called unicode-key-duplicate used a
+plain duplicate key. The following commit PRESERVES that case under a
+truthful method name AND ADDS a distinct escaped-JSON duplicate key
+regression (literal backslash-u0075, unescaped by object_pairs_hook).
+Against legacy dd30025, 21 methods, 7 PASS, 14 failing assertions,
+zero skips. Neither negative oracle was relaxed. New exact SHA needs
+new peer review before declaring the final QA branch approved.
