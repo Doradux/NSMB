@@ -99,10 +99,20 @@ class W01IntegratedBoundaries(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyzed(m=json.dumps(m))
 
-    def test_nested_quality_duplicate_unicode_key_fails(self):
+    def test_nested_quality_duplicate_plain_key_fails(self):
         source = json.dumps(meta())
         source = source.replace('"quality": {',
                                 '"quality": {"invalidSsaFunctionCount": 0, ')
+        with self.assertRaises(ValueError):
+            analyzed(m=source)
+
+    def test_nested_quality_escaped_unicode_alias_fails(self):
+        source = json.dumps(meta())
+        # Keep the literal JSON backslash-u escape in the source string;
+        # the parser must unescape it BEFORE duplicate-key detection.
+        encoded_key = 'invalidSsaFunctionCo' + chr(92) + 'u0075nt'
+        source = source.replace('"quality": {',
+                                '"quality": {"' + encoded_key + '": 0, ')
         with self.assertRaises(ValueError):
             analyzed(m=source)
 
