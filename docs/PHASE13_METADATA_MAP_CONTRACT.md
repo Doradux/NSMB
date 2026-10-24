@@ -83,7 +83,12 @@ explicit review, not disabling rejection.
 
 Executed independently on unmodified old combined W01 auditor
 `dd30025`:
-- 19 new CLI/MAP/metadata methods: **10 PASS, 9 FAIL, 0 SKIP**
+- Initial 19-case CLI/MAP/metadata suite: **10 PASS, 9 FAIL, 0 SKIP**.
+- After Toad independent review, invalid types now MUST raise ValueError
+  (no raw KeyError/TypeError or generic nonzero report allowed), map syntax
+  CLI MUST exit4, and missing `entryPoint` has its own assertion:
+  **20 cases, 9 PASS, 10 FAIL and 1 uncontrolled ERROR (KeyError)
+  against the OLD audit**, zero SKIP. This is STRONGER intentional RED.
   (a deliberately **RED** regression suite; tests explicitly identify
   false positives and missing controlled CLI status4).
 - 12 new tests directly invoking the approved strict metadata helper:
@@ -91,7 +96,7 @@ Executed independently on unmodified old combined W01 auditor
 - Original author+helpers `tests/test_*.py`: **110 PASS, 0 FAIL, 0 SKIP**.
   That does **not** prove the legacy audit integrates the helpers.
 
-The 19-case RED suite is *not* claimed GREEN until a NEW clean exact
+The 20-case RED suite is *not* claimed GREEN until a NEW clean exact
 Mario integration SHA exists. At that point run unchanged suite against
 `NSMB_W01_AUDIT_ROOT=/path/to/EXACT-COMMIT`, plus all author,
 Phase7/9/10/12 tests, without SKIP, and separately inspect CLI
