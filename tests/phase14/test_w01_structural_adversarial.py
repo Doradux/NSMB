@@ -256,12 +256,10 @@ class MalformedStructuralEvidence(unittest.TestCase):
                    "80004004 x\n80500004 rel\n80500004 dup")
         for m in samples:
             with self.subTest(map=m[:36]):
-                try:
-                    report, code = analyze(map_text=m)
-                except ValueError:
-                    continue
-                self.assertFalse(report["strict_compatible"])
-                self.assertNotEqual(code, 0)
+                # Every sample is a malformed or duplicated MAP with a
+                # PRESENT complete translator manifest. Merely returning
+                # incompatible status3 is not structural rejection.
+                self.assert_bad(map_text=m)
 
     def test_translation_numeric_uint32_rejects_coercion(self):
         for entry in (True, False, 1.0, ENTRY+0.5, None,
