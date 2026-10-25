@@ -164,5 +164,51 @@ class ThirdRoundPeerReviewRegressions(unittest.TestCase):
         self.reject("ignored: |\n" + "".join("  " + line for line in profile().splitlines(True)))
 
 
+class FourthRoundColonAndReservedIndicatorGate(unittest.TestCase):
+    """Source/real CLI contracts from independent Luigi, Peach, Toad R3."""
+
+    def reject(self, text):
+        with self.assertRaises(ValueError):
+            analyze(yaml=text)
+        for probe in (False, True):
+            with self.subTest(probe=probe):
+                result = run_cli(yaml=text, probe=probe)
+                self.assertEqual(result.returncode, 4, result.stdout + result.stderr)
+                self.assertNotIn('"strict_compatible": true', result.stdout.lower())
+
+    def accept(self, text):
+        report, status = analyze(yaml=text)
+        self.assertEqual(status, 0, report)
+        self.assertTrue(report["strict_compatible"])
+        self.assertEqual(run_cli(yaml=text).returncode, 0)
+
+    def test_luigi_reserved_scalar_indicators_rejected(self):
+        for value in ("@bad", "@", "`quoted`", "`", "-"):
+            with self.subTest(value=value):
+                self.reject(profile() + "extension: " + value + "\n")
+
+    def test_peach_root_colon_without_separator_rejected(self):
+        for bad in ("extra:1\n", "foo:bar\n"):
+            with self.subTest(bad=bad):
+                self.reject(profile() + bad)
+
+    def test_toad_sha256_without_separator_cannot_forge_sha(self):
+        good = profile()
+        digest = good.split("sha256: ")[1].split("\n", 1)[0]
+        self.reject(good.replace("sha256: " + digest, "sha256:" + digest))
+
+    def test_toad_game_id_without_separator_is_not_field(self):
+        self.reject(profile().replace("game_id: SYNTHETIC", "game_id:SYNTHETIC"))
+
+    def test_toad_nested_colon_without_separator_is_not_mapping(self):
+        self.reject(profile() + "extra:\n  label:value\n")
+
+    def test_positive_valid_yaml_mapping_and_colon_inside_scalar(self):
+        for suffix in ("extra: 1\n", "extra: bar\n",
+                       "extra:\n  label: value\n", "extra: foo:bar\n"):
+            with self.subTest(suffix=suffix):
+                self.accept(profile() + suffix)
+
+
 if __name__ == "__main__":
     unittest.main()

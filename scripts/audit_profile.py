@@ -19,7 +19,7 @@ from strict_translation_metadata import parse_translation_metadata, quality_clea
 
 # Parse only the three required scalar paths from a strict indentation-scoped
 # subset of YAML. Do not search for an arbitrary sha256 key in another mapping.
-KEY_VALUE = re.compile(r"^([A-Za-z_][A-Za-z_0-9-]*):[ \t]*(.*)$")
+KEY_VALUE = re.compile(r"^([A-Za-z_][A-Za-z_0-9-]*):(?:[ \t]+(.*)|)$")
 SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 ENTRY_VALUE = re.compile(r"^0x[0-9a-fA-F]{1,8}$")
 
@@ -151,7 +151,7 @@ def profile_info(text):
         if not match:
             raise ValueError(f"Unsupported profile YAML syntax on line {number}")
         key, value = match.groups()
-        value = value.strip()
+        value = (value or "").strip()
         if value.startswith("#"):
             value = ""
         else:
@@ -162,7 +162,8 @@ def profile_info(text):
         # The exact empty inline map is harmless and preserves the legacy
         # missing-required-field error; arbitrary flow syntax stays rejected.
         if value and value != "{}" and (
-            value[0] in ("{", "[", "'", '"', "!", "&", "*", "|", ">", "?", "%")
+            value[0] in ("{", "[", "'", '"', "!", "&", "*", "|", ">", "?", "%", "@", "`")
+            or value == "-"
             or value.startswith("- ")
             or re.search(r":(?:[ \t]|$)", value)
             or "\t" in value
