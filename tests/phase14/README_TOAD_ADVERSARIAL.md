@@ -12,7 +12,7 @@ Not a real game boot, no translation source, no sudo.
   loads a selected exact `audit_profile.py` via `NSMB_W01_AUDIT_ROOT`.
   It calls the ACTUAL analyze(), dol_sections() and subprocess CLI.
   No fake audit implementation or patching.
-- 25 unittest methods, deterministic PRNG seed `14025`, 128 separate
+- 26 unittest methods, deterministic PRNG seed `14025`, 128 separate
   random REL interval pairs with an independent half-open overlap oracle,
   plus typed/Unicode/JSON/YAML/MAP/metadata/CLI boundary subtests.
 - Negative structural input must yield a controlled `ValueError` / CLI4.
@@ -21,7 +21,7 @@ Not a real game boot, no translation source, no sudo.
   process exit0 while strict_compatible remains false.
 - Clean positive controls include DOL/REL text+data adjacency, DOL-only
   full coverage with REL absent, finite unknown fields, correct MAP
-  provenance, and BSS half-open uint32 EOF exactly `2**32`.
+  provenance, and a BSS range adjacent to (but not overlapping) data.
 
 Run on own source checkout:
 
@@ -34,16 +34,20 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD PYTHONDONTWRITEBYTECODE=1 \
 
 ## RED-first genuine defects / unproven semantics
 
-Initial integrated `faa7a21`: **25 methods: 20 PASS, 5 FAIL, 0 ERROR,
+Initial integrated `faa7a21`: **26 methods: 20 PASS, 6 FAIL, 0 ERROR,
 0 SKIP**; all 128 deterministic REL pair subcases passed. Three failures
 are BSS allocation collisions (with DOL loaded code, DOL loaded data and
 REL section); one is a 32-bit BSS overflow; one is a YAML multi-document
 stream silently ignored by `profile_info`.
 
 1. `dol_sections()` reads `bss`/`bss_size` but never checks
-   `bss+bss_size <= 0x100000000`. A synthetic BSS at `0xFFFFFFF0`
-   with size `0x20` is silently accepted. This is arithmetic overflow
-   outside the guest address space and should be rejected.
+   checked-uint32 `bss+bss_size`. A synthetic BSS at `0xFFFFFFF0`
+   with either `0x10` (end exactly `2**32`) or `0x20` (past it)
+   is silently accepted. The PINNED PUBLIC upstream producer
+   `Translator.Core/Parsing/Dol/DolFile.cs:CalculateRange` computes
+   `checked(bssAddress + bssSize)` using C# uint: BOTH overflow and
+   should be rejected. Unlike the REL helper mathematical half-open
+   representation, BSS does not allow exclusive end `2**32`.
 2. `dol_sections()` accepts BSS overlapping code and data loaded
    sections. Since the auditor claims unambiguous static provenance,
    the collision must either be rejected or subject to an independently
