@@ -160,9 +160,10 @@ class PositiveEvidenceControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze(map_text="80004004 only\n", rel="", metadata=meta)
 
-    def test_dol_bss_no_overlap_and_exact_end_positive(self):
-        # Half-open end == 2**32 (last uint32 byte) is not overflow.
-        data = invented_dol(bss=0xFFFFFFF0, bss_size=0x10)
+    def test_bss_adjacent_to_loaded_data_positive(self):
+        # DOL initialized data occupies [DATA,DATA+0x10); BSS immediately
+        # following it is a genuine non-overlap boundary.
+        data = invented_dol(bss=DATA+0x10, bss_size=0x10)
         result, code = analyze(data=data)
         self.assertEqual(code, 0)
         self.assertTrue(result["strict_compatible"])
@@ -299,6 +300,14 @@ class MalformedStructuralEvidence(unittest.TestCase):
 
 
 class DolHeaderOwnership(unittest.TestCase):
+    def test_bss_exclusive_end_2power32_is_rejected(self):
+        # The pinned public C# DOL loader computes checked(uint+uint), so
+        # an exclusive end at 0x100000000 is overflow even though a Python
+        # integer can represent that mathematical half-open boundary.
+        data = invented_dol(bss=0xFFFFFFF0, bss_size=0x10)
+        with self.assertRaises(ValueError):
+            audit.dol_sections(data)
+
     def test_bss_uint32_overflow_is_rejected(self):
         # No mapping can own bytes beyond 32-bit guest address space.
         data = invented_dol(bss=0xFFFFFFF0, bss_size=0x20)
