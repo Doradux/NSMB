@@ -79,13 +79,22 @@ def profile_info(text):
     seen_paths = set()
     seen = {}
     entry_path = ("translation", "entry_points")
+    # Canonical child indentation is fixed per mapping path, including
+    # unknown extension mappings. Python splitlines alone is NOT a YAML lexer.
+    child_indent_by_path = {}
     document_marker_seen = False
     document_content_seen = False
     last_indent = -1
     last_opens_mapping = False
-    if "\ufeff" in text or "\x00" in text:
-        raise ValueError("Unsupported profile Unicode marker or NUL")
-    for number, raw in enumerate(text.splitlines(), 1):
+    # The restricted YAML grammar uses LF/CR only as line separators.
+    # splitlines() would split at ASCII record separators 1C/1D/1E even
+    # though YAML cannot contain them, synthesizing bogus root mappings.
+    if any((ord(char) < 0x20 and char not in "\n\r")
+           or 0x7F <= ord(char) <= 0x9F
+           or char in "\ufeff\u2028\u2029"
+           for char in text):
+        raise ValueError("Unsupported YAML control character or line separator")
+    for number, raw in enumerate(text.replace("\r\n", "\n").replace("\r", "\n").split("\n"), 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
         indent = len(raw) - len(raw.lstrip(" "))
@@ -114,6 +123,12 @@ def profile_info(text):
         if indent > 0 and not stack:
             raise ValueError(f"Profile content without mapping parent on line {number}")
         parents = tuple(name for _, name in stack)
+        # For each mapping/list scope every immediate child uses the SAME
+        # column. Otherwise arbitrary malformed indent can masquerade as
+        # different (valid) source fields without a YAML parser agreeing.
+        expected = child_indent_by_path.setdefault(parents, indent)
+        if indent != expected:
+            raise ValueError(f"Inconsistent YAML child indentation on line {number}")
         last_indent = indent
         last_opens_mapping = False
 
@@ -128,6 +143,10 @@ def profile_info(text):
             seen["entry"] = int(value, 16)
             continue
 
+        if parents == entry_path:
+            # A sequence of scalar entry points cannot contain mapping
+            # siblings at the same indentation as its list items.
+            raise ValueError(f"Mapping inside scalar entry-point list on line {number}")
         match = KEY_VALUE.fullmatch(body)
         if not match:
             raise ValueError(f"Unsupported profile YAML syntax on line {number}")

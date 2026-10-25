@@ -103,5 +103,66 @@ class DolInitializedSectionUint32(unittest.TestCase):
                                  metadata=meta).returncode, 0)
 
 
+class ThirdRoundPeerReviewRegressions(unittest.TestCase):
+    # All examples are invented. They hit the actual analyze() and subprocess
+    # CLI; none of these assertions depends on PyYAML being installed.
+    def reject(self, doc):
+        with self.assertRaises(ValueError):
+            analyze(yaml=doc)
+        for probe in (False, True):
+            with self.subTest(probe=probe):
+                process = run_cli(yaml=doc, probe=probe)
+                self.assertEqual(process.returncode, 4, process.stdout + process.stderr)
+                self.assertNotIn('"strict_compatible": true', process.stdout.lower())
+
+    def accept(self, doc):
+        result, code = analyze(yaml=doc)
+        self.assertEqual(code, 0)
+        self.assertTrue(result["strict_compatible"])
+        process = run_cli(yaml=doc)
+        self.assertEqual(process.returncode, 0, process.stderr)
+
+    def test_luigi_ascii_controls_cannot_create_yaml_root(self):
+        for n in (0x1C, 0x1D, 0x1E):
+            with self.subTest(code=hex(n)):
+                self.reject("ignored: harmless" + chr(n) + profile())
+
+    def test_toad_unknown_mapping_sibling_indent_fail_closed(self):
+        for malformed in (
+            "extra:\n    first: yes\n   second: no\n",
+            "extra:\n   one: yes\n  two: no\n",
+            "extra:\n  nested:\n      first: yes\n     second: no\n",
+            "extra:\n     first: yes\n    second:\n      third: yes\n",
+            "unknown:\n       first: yes\n      second: no\nother: yes\n",
+        ):
+            with self.subTest(case=malformed):
+                self.reject(profile() + malformed)
+
+    def test_peach_sequence_scalar_rejects_same_indent_map(self):
+        self.reject(profile() + "    child: not-valid-after-list-item\n")
+
+    def test_peach_project_mapping_rejects_mixed_sibling_columns(self):
+        doc = profile().replace(
+            "  game_id: SYNTHETIC\n",
+            "   game_id: SYNTHETIC\n  other: 1\n",
+        )
+        self.reject(doc)
+
+    def test_valid_sibling_columns_and_root_dedent_stay_compatible(self):
+        for extension in (
+            "extra:\n    first: yes\n    second: no\n",
+            "extra:\n    first: yes\n    nested:\n      leaf: no\nother: yes\n",
+            "extra:\n  explanation: valid\n",
+        ):
+            with self.subTest(extension=extension):
+                self.accept(profile() + extension)
+
+    def test_crlf_line_ending_remains_supported(self):
+        self.accept(profile().replace("\n", "\r\n"))
+
+    def test_unknown_nested_no_source_provenance_in_block(self):
+        self.reject("ignored: |\n" + "".join("  " + line for line in profile().splitlines(True)))
+
+
 if __name__ == "__main__":
     unittest.main()
