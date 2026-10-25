@@ -109,9 +109,11 @@ class DolAuditTests(unittest.TestCase):
         data = fake_dol()
         meta = json.loads(synthetic_meta())
         meta["functions"].append(meta["functions"][0])
-        report, status = analyze(data, profile(data), None, synthetic_rel(), json.dumps(meta))
-        self.assertEqual(status, 3)
-        self.assertEqual(report["translation"]["unique"], 2)
+        # Duplicate function identity is *malformed structure*: the strict
+        # metadata parser must reject it BEFORE producing a misleading
+        # translation.unique count or a report pretending it was usable.
+        with self.assertRaisesRegex(ValueError, "Repeated translation function address"):
+            analyze(data, profile(data), None, synthetic_rel(), json.dumps(meta))
 
     def test_truncated_and_out_of_range_dol(self):
         with self.assertRaisesRegex(ValueError, "truncated"):

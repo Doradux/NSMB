@@ -75,21 +75,19 @@ class CompatibilityNegativeRegressionTests(unittest.TestCase):
 
     def test_map_entries_missing_from_translation_never_pass_strict(self):
         data = fake_dol()
-        report, status = analyze(
-            data, profile(data), "80004004 a\n80004008 b\n",
-            None, metadata(0x80004004, quality=GOOD_QUALITY))
-        self.assertFalse(report["strict_compatible"],
-                         "Mapped executable addresses must be translated")
-        self.assertNotEqual(status, 0)
+        # Structural mismatch, not merely unsupported-but-wellformed
+        # coverage. Strict producer/MAP parity is fail-closed (CLI 4).
+        with self.assertRaisesRegex(ValueError, "Incomplete MAP/translation"):
+            analyze(data, profile(data), "80004004 a\n80004008 b\n",
+                    None, metadata(0x80004004, quality=GOOD_QUALITY))
 
     def test_missing_translator_quality_counters_never_pass_strict(self):
         data = fake_dol()
-        report, status = analyze(
-            data, profile(data), "80004004 a", None,
-            metadata(0x80004004))
-        self.assertFalse(report["strict_compatible"],
-                         "Absent counters cannot default to zero defects")
-        self.assertNotEqual(status, 0)
+        # Missing required quality provenance is structurally invalid;
+        # it must not silently default to zero defect counters.
+        with self.assertRaisesRegex(ValueError, "Translation quality"):
+            analyze(data, profile(data), "80004004 a", None,
+                    metadata(0x80004004))
 
     def test_hash_only_input_is_not_full_static_coverage(self):
         data = fake_dol()
@@ -104,12 +102,10 @@ class CompatibilityNegativeRegressionTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 quality = dict(GOOD_QUALITY)
                 quality["unsupportedInstructionCount"] = bad
-                report, code = analyze(
-                    data, profile(data), "80004004 a", None,
-                    metadata(0x80004004, quality=quality))
-                self.assertFalse(report["strict_compatible"])
-                self.assertFalse(report["translation"]["quality_verified"])
-                self.assertNotEqual(code, 0)
+                with self.assertRaisesRegex(ValueError,
+                                            "unsupportedInstructionCount"):
+                    analyze(data, profile(data), "80004004 a", None,
+                            metadata(0x80004004, quality=quality))
 
     def test_metadata_only_is_not_full_map_coverage(self):
         data = fake_dol()
@@ -122,11 +118,11 @@ class CompatibilityNegativeRegressionTests(unittest.TestCase):
 
     def test_repeated_map_entries_fail_closed(self):
         data = fake_dol()
-        report, status = analyze(
-            data, profile(data), "80004004 a\n80004004 b\n", None,
-            metadata(0x80004004, quality=GOOD_QUALITY))
-        self.assertFalse(report["strict_compatible"])
-        self.assertNotEqual(status, 0)
+        # Repeating identical guest address under two MAP names is
+        # ambiguous provenance: strict helper rejects before report.
+        with self.assertRaisesRegex(ValueError, "Repeated MAP function address"):
+            analyze(data, profile(data), "80004004 a\n80004004 b\n",
+                    None, metadata(0x80004004, quality=GOOD_QUALITY))
 
     def test_complete_synthetic_inputs_are_eligible_for_static_coverage(self):
         data = fake_dol()
