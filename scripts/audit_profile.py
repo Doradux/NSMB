@@ -88,12 +88,14 @@ def profile_info(text):
         body = raw[indent:]
         # Support one optional leading YAML start marker, but never consume
         # only the first document of a multi-document evidence stream.
-        if re.fullmatch(r"---(?:[ \t]+#.*)?", body):
+        if body.startswith("---"):
+            if not re.fullmatch(r"---(?:[ \t]+#.*)?", body):
+                raise ValueError(f"Unsupported YAML document marker on line {number}")
             if indent or document_marker_seen or document_content_seen:
                 raise ValueError(f"Multiple YAML profile documents on line {number}")
             document_marker_seen = True
             continue
-        if re.fullmatch(r"\.\.\.(?:[ \t]+#.*)?", body):
+        if body.startswith("..."):
             raise ValueError(f"Unsupported YAML profile document end on line {number}")
         document_content_seen = True
         while stack and stack[-1][0] >= indent:
