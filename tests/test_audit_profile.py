@@ -69,10 +69,27 @@ class DolAuditTests(unittest.TestCase):
 
     def test_hash_mismatch_is_never_strict(self):
         data = fake_dol()
+        # Wrong SHA does not justify status 2 when MAP/metadata evidence is
+        # missing. The strict contract reports incomplete evidence (3),
+        # while still exposing the mismatch and NEVER claiming compatibility.
         report, status = analyze(data, profile(data, "f" * 64), None, synthetic_rel())
+        self.assertEqual(status, 3)
+        self.assertFalse(report["strict_compatible"])
+        self.assertFalse(report["hash_match"])
+        self.assertFalse(report["coverage_evidence_complete"])
+
+    def test_hash_mismatch_with_complete_checked_evidence_is_status_two(self):
+        # Positive control for the original hash-mismatch intent: only a
+        # complete and otherwise valid synthetic MAP/translation/REL bundle
+        # can be classified specifically as a SHA mismatch (2).
+        data = fake_dol()
+        report, status = analyze(
+            data, profile(data, "f" * 64), "80004004 start\n80768004 rel\n",
+            synthetic_rel(), synthetic_meta())
         self.assertEqual(status, 2)
         self.assertFalse(report["strict_compatible"])
         self.assertFalse(report["hash_match"])
+        self.assertTrue(report["coverage_evidence_complete"])
 
     def test_unmapped_entry_is_invalid_even_with_correct_hash(self):
         data = fake_dol()
@@ -92,9 +109,11 @@ class DolAuditTests(unittest.TestCase):
         data = fake_dol()
         meta = json.loads(synthetic_meta())
         meta["functions"].append(meta["functions"][0])
-        report, status = analyze(data, profile(data), None, synthetic_rel(), json.dumps(meta))
-        self.assertEqual(status, 3)
-        self.assertEqual(report["translation"]["unique"], 2)
+        # Duplicate function identity is *malformed structure*: the strict
+        # metadata parser must reject it BEFORE producing a misleading
+        # translation.unique count or a report pretending it was usable.
+        with self.assertRaisesRegex(ValueError, "Repeated translation function address"):
+            analyze(data, profile(data), None, synthetic_rel(), json.dumps(meta))
 
     def test_truncated_and_out_of_range_dol(self):
         with self.assertRaisesRegex(ValueError, "truncated"):
