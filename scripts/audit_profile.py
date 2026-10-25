@@ -38,7 +38,7 @@ def dol_sections(data):
         offset, addr = offsets[i], addrs[i]
         if offset < 0x100 or offset + size > len(data):
             raise ValueError(f"Section {i} exceeds file or overlaps header")
-        if addr + size > 0x100000000:
+        if addr + size > 0xFFFFFFFF:
             raise ValueError("DOL section exceeds 32-bit guest address space")
         sections.append(dict(start=addr, end=addr + size, executable=i < 7,
                              file_start=offset, file_end=offset + size))
@@ -72,13 +72,19 @@ def profile_info(text):
     """
     if not isinstance(text, str):
         raise ValueError("Profile must be YAML text")
+    # Conservative mapping-only grammar: reject YAML constructs we cannot
+    # interpret without mistaking scalar content for pinned source evidence.
+    # Do not imply this small parser implements the general YAML standard.
     stack = []
     seen_paths = set()
     seen = {}
     entry_path = ("translation", "entry_points")
-    relevant_roots = {"project", "inputs", "translation"}
     document_marker_seen = False
     document_content_seen = False
+    last_indent = -1
+    last_opens_mapping = False
+    if "\ufeff" in text or "\x00" in text:
+        raise ValueError("Unsupported profile Unicode marker or NUL")
     for number, raw in enumerate(text.splitlines(), 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
@@ -86,8 +92,8 @@ def profile_info(text):
         if "\t" in raw[:len(raw) - len(raw.lstrip())]:
             raise ValueError(f"Tabs in profile indentation on line {number}")
         body = raw[indent:]
-        # Support one optional leading YAML start marker, but never consume
-        # only the first document of a multi-document evidence stream.
+        # A single initial document marker is explicitly understood; a
+        # second stream/document must never be silently ignored.
         if body.startswith("---"):
             if not re.fullmatch(r"---(?:[ \t]+#.*)?", body):
                 raise ValueError(f"Unsupported YAML document marker on line {number}")
@@ -96,30 +102,54 @@ def profile_info(text):
             document_marker_seen = True
             continue
         if body.startswith("..."):
-            raise ValueError(f"Unsupported YAML profile document end on line {number}")
+            raise ValueError(f"Unsupported YAML document end on line {number}")
         document_content_seen = True
+
+        # Indentation may only increase immediately after a mapping key with
+        # no value. Otherwise a scalar/sequence can spoof root evidence.
+        if last_indent >= 0 and indent > last_indent and not last_opens_mapping:
+            raise ValueError(f"Unexpected indentation after scalar on line {number}")
         while stack and stack[-1][0] >= indent:
             stack.pop()
+        if indent > 0 and not stack:
+            raise ValueError(f"Profile content without mapping parent on line {number}")
         parents = tuple(name for _, name in stack)
-        if body.startswith("- "):
-            if parents == entry_path:
-                value = body[2:].split(" #", 1)[0].strip()
-                if "entry" in seen:
-                    raise ValueError("Multiple translation entry points require separate evidence")
-                if not ENTRY_VALUE.fullmatch(value):
-                    raise ValueError("Invalid translation entry point")
-                seen["entry"] = int(value, 16)
-            elif parents and parents[0] in relevant_roots:
-                raise ValueError(f"Unexpected YAML list in profile line {number}")
+        last_indent = indent
+        last_opens_mapping = False
+
+        if body.startswith("-"):
+            if parents != entry_path or not body.startswith("- "):
+                raise ValueError(f"Unsupported YAML sequence on line {number}")
+            value = body[2:].split(" #", 1)[0].strip()
+            if "entry" in seen:
+                raise ValueError("Multiple translation entry points require separate evidence")
+            if not ENTRY_VALUE.fullmatch(value):
+                raise ValueError("Invalid translation entry point")
+            seen["entry"] = int(value, 16)
             continue
+
         match = KEY_VALUE.fullmatch(body)
         if not match:
-            if parents and parents[0] in relevant_roots:
-                raise ValueError(f"Unsupported profile syntax on line {number}")
-            continue
+            raise ValueError(f"Unsupported profile YAML syntax on line {number}")
         key, value = match.groups()
+        value = value.strip()
+        if value.startswith("#"):
+            value = ""
+        else:
+            value = value.split(" #", 1)[0].strip()
+        # Inline flow collections, tags, anchors, aliases, quotes and block
+        # scalars require real YAML evaluation. In this restricted evidence
+        # grammar they are prohibited, even under an unrelated root key.
+        # The exact empty inline map is harmless and preserves the legacy
+        # missing-required-field error; arbitrary flow syntax stays rejected.
+        if value and value != "{}" and (
+            value[0] in ("{", "[", "'", '"', "!", "&", "*", "|", ">", "?", "%")
+            or value.startswith("- ")
+            or re.search(r":(?:[ \t]|$)", value)
+            or "\t" in value
+        ):
+            raise ValueError(f"Unsupported YAML scalar syntax on line {number}")
         path = parents + (key,)
-        value = value.split(" #", 1)[0].strip()
         if path in seen_paths:
             raise ValueError(f"Duplicate profile key: {'.'.join(path)}")
         seen_paths.add(path)
@@ -128,13 +158,14 @@ def profile_info(text):
                 raise ValueError("Invalid inputs.dol.sha256 value")
             seen["sha256"] = value.lower()
         elif path == ("project", "game_id"):
-            if not value or value.startswith(("!", "&", "*", "{", "[")):
+            if not value:
                 raise ValueError("Invalid profile game_id scalar")
             seen["game_id"] = value
         elif path == entry_path and value:
             raise ValueError("Translation entry points require explicit list entries")
         if not value:
             stack.append((indent, key))
+            last_opens_mapping = True
     if "sha256" not in seen or "entry" not in seen:
         raise ValueError("Missing explicit DOL SHA-256 or entry point in profile")
     return dict(expected_sha256=seen["sha256"], entry=seen["entry"],
