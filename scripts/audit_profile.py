@@ -50,6 +50,16 @@ def dol_sections(data):
                 raise ValueError("DOL virtual address ranges overlap")
             if a["file_start"] < b["file_end"] and b["file_start"] < a["file_end"]:
                 raise ValueError("DOL file image ranges overlap")
+
+    # The pinned upstream DOL loader uses checked(uint32) for BSS address+size.
+    # Therefore even an exclusive end of 2**32 is not representable.
+    if bss_size and bss + bss_size > 0xFFFFFFFF:
+        raise ValueError("DOL BSS exceeds checked uint32 address range")
+    if bss_size:
+        bss_end = bss + bss_size
+        for section in sections:
+            if bss < section["end"] and section["start"] < bss_end:
+                raise ValueError("DOL BSS overlaps initialized DOL section")
     return dict(entry=entry, bss=bss, bss_size=bss_size, sections=sections)
 
 
@@ -67,6 +77,8 @@ def profile_info(text):
     seen = {}
     entry_path = ("translation", "entry_points")
     relevant_roots = {"project", "inputs", "translation"}
+    document_marker_seen = False
+    document_content_seen = False
     for number, raw in enumerate(text.splitlines(), 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
@@ -74,6 +86,16 @@ def profile_info(text):
         if "\t" in raw[:len(raw) - len(raw.lstrip())]:
             raise ValueError(f"Tabs in profile indentation on line {number}")
         body = raw[indent:]
+        # Support one optional leading YAML start marker, but never consume
+        # only the first document of a multi-document evidence stream.
+        if re.fullmatch(r"---(?:[ \t]+#.*)?", body):
+            if indent or document_marker_seen or document_content_seen:
+                raise ValueError(f"Multiple YAML profile documents on line {number}")
+            document_marker_seen = True
+            continue
+        if re.fullmatch(r"\.\.\.(?:[ \t]+#.*)?", body):
+            raise ValueError(f"Unsupported YAML profile document end on line {number}")
+        document_content_seen = True
         while stack and stack[-1][0] >= indent:
             stack.pop()
         parents = tuple(name for _, name in stack)
@@ -175,9 +197,15 @@ def analyze(dol_data, profile, map_text=None, rel_text=None, metadata_text=None)
     info = dol_sections(dol_data)
     expected = profile_info(profile)
     dol = info["sections"]
-    # The standalone legacy rel_sections() API does not know DOL ownership.
-    # Pass ALL DOL sections including data to the strict implementation.
-    rel = parse_rel_sections(rel_text, dol_sections=dol) if rel_text is not None else []
+    # REL ownership must account for initialized DOL sections AND nonempty BSS.
+    # Without authenticated loader lifetimes, any static collision is ambiguous.
+    dol_ownership = list(dol)
+    if info["bss_size"]:
+        dol_ownership.append(dict(start=info["bss"],
+                                  end=info["bss"] + info["bss_size"],
+                                  executable=False))
+    rel = (parse_rel_sections(rel_text, dol_sections=dol_ownership)
+           if rel_text is not None else [])
     actual_hash = hashlib.sha256(dol_data).hexdigest()
     match = actual_hash == expected["expected_sha256"]
     report = dict(game_id=expected["game_id"], expected_sha256=expected["expected_sha256"],
