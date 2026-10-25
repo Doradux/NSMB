@@ -69,7 +69,17 @@ class DolAuditTests(unittest.TestCase):
 
     def test_hash_mismatch_is_never_strict(self):
         data = fake_dol()
+        # Digest mismatch does not outrank *missing* coverage evidence.
         report, status = analyze(data, profile(data, "f" * 64), None, synthetic_rel())
+        self.assertEqual(status, 3)
+        self.assertFalse(report["strict_compatible"])
+        self.assertFalse(report["hash_match"])
+        # Preserve an explicit STATUS 2 positive when MAP + translation are
+        # both complete and structurally clean; no test has been skipped.
+        report, status = analyze(
+            data, profile(data, "f" * 64),
+            "80004004 start\n80768004 rel\n",
+            synthetic_rel(), synthetic_meta())
         self.assertEqual(status, 2)
         self.assertFalse(report["strict_compatible"])
         self.assertFalse(report["hash_match"])
@@ -92,9 +102,11 @@ class DolAuditTests(unittest.TestCase):
         data = fake_dol()
         meta = json.loads(synthetic_meta())
         meta["functions"].append(meta["functions"][0])
-        report, status = analyze(data, profile(data), None, synthetic_rel(), json.dumps(meta))
-        self.assertEqual(status, 3)
-        self.assertEqual(report["translation"]["unique"], 2)
+        # A duplicated address is malformed translation evidence. The
+        # strict metadata helper raises ValueError -> CLI 4, not a
+        # status-3 report with 'unique' counts from a malformed list.
+        with self.assertRaisesRegex(ValueError, "Repeated translation function address"):
+            analyze(data, profile(data), None, synthetic_rel(), json.dumps(meta))
 
     def test_truncated_and_out_of_range_dol(self):
         with self.assertRaisesRegex(ValueError, "truncated"):
