@@ -210,5 +210,45 @@ class FourthRoundColonAndReservedIndicatorGate(unittest.TestCase):
                 self.accept(profile() + suffix)
 
 
+class FifthRoundYamlPlainScalarGrammarGate(unittest.TestCase):
+    """YAML-flow reserved indicators reported independently by R4 peers."""
+
+    def assert_closed(self, text):
+        with self.assertRaises(ValueError):
+            analyze(yaml=text)
+        for probe in (False, True):
+            with self.subTest(probe=probe):
+                result = run_cli(yaml=text, probe=probe)
+                self.assertEqual(result.returncode, 4, result.stdout + result.stderr)
+                self.assertNotIn('"strict_compatible": true', result.stdout.lower())
+
+    def assert_compatible(self, text):
+        result, code = analyze(yaml=text)
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["strict_compatible"])
+        self.assertEqual(run_cli(yaml=text).returncode, 0)
+
+    def test_luigi_six_flow_indicator_scalar_starters_rejected(self):
+        for value in (",", ",name", "]", "]name", "}", "}name"):
+            with self.subTest(value=value):
+                self.assert_closed(profile() + "extra: " + value + "\n")
+
+    def test_peach_minimal_invalid_flow_closers_rejected(self):
+        for value in ("]", "}", ","):
+            with self.subTest(value=value):
+                self.assert_closed(profile() + "extra: " + value + "\n")
+
+    def test_toad_flow_prefix_with_payload_rejected(self):
+        for value in (",abc", "]tail", "}tail"):
+            with self.subTest(value=value):
+                self.assert_closed(profile() + "extra: " + value + "\n")
+
+    def test_positive_internal_flow_chars_remain_plain_text(self):
+        for value in ("ordinary", "foo,bar", "foo]bar", "foo}bar",
+                      "value:foo", "good ]", "legitimate,commas"):
+            with self.subTest(value=value):
+                self.assert_compatible(profile() + "extra: " + value + "\n")
+
+
 if __name__ == "__main__":
     unittest.main()

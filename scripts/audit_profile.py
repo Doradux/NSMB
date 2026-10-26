@@ -20,6 +20,13 @@ from strict_translation_metadata import parse_translation_metadata, quality_clea
 # Parse only the three required scalar paths from a strict indentation-scoped
 # subset of YAML. Do not search for an arbitrary sha256 key in another mapping.
 KEY_VALUE = re.compile(r"^([A-Za-z_][A-Za-z_0-9-]*):(?:[ \t]+(.*)|)$")
+# All YAML plain-scalar forbidden initial flow/collection/alias/tag/quoted
+# indicators, not just opening brackets. Keep them legal *inside* plain text
+# when YAML treats them as normal characters, e.g. "foo,bar" or "foo}bar".
+YAML_RESERVED_PLAIN_START = frozenset((
+    "[", "]", "{", "}", ",", "'", '"', "!", "&", "*", "|", ">",
+    "?", "%", "@", "`", ":",
+))
 SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 ENTRY_VALUE = re.compile(r"^0x[0-9a-fA-F]{1,8}$")
 
@@ -162,7 +169,7 @@ def profile_info(text):
         # The exact empty inline map is harmless and preserves the legacy
         # missing-required-field error; arbitrary flow syntax stays rejected.
         if value and value != "{}" and (
-            value[0] in ("{", "[", "'", '"', "!", "&", "*", "|", ">", "?", "%", "@", "`")
+            value[0] in YAML_RESERVED_PLAIN_START
             or value == "-"
             or value.startswith("- ")
             or re.search(r":(?:[ \t]|$)", value)
