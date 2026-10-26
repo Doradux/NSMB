@@ -22,9 +22,9 @@ PROFILE='project:\n  game_id: SMNE01\ninputs:\n  dol:\n    sha256: '+HASH+'\ntra
 MAP='80004004 included\n'
 Q='"unsupportedInstructionCount":0,"invalidSsaFunctionCount":0'
 GOOD='{"functions":[{"entryPoint":2147500036}],"quality":{'+Q+'}}'
-def accepted(meta,prof=PROFILE):
+def accepted(meta,prof=PROFILE,map_text=MAP):
  try:
-  result,status=audit.analyze(DATA,prof,MAP,None,meta)
+  result,status=audit.analyze(DATA,prof,map_text,None,meta)
   return bool(result['strict_compatible']),status
  except (TypeError,ValueError,KeyError):
   return False,4
@@ -32,7 +32,12 @@ class MetadataDuplicateKeyGate(unittest.TestCase):
  def test_synthetic_positive_and_safe_extra_function(self):
   self.assertEqual(accepted(GOOD),(True,0))
   extra='{"functions":[{"entryPoint":2147500036},{"entryPoint":2147500040}],"quality":{'+Q+'}}'
-  self.assertEqual(accepted(extra),(True,0))
+  # This historical positive was wrong: metadata alone may NOT invent
+  # an additional translated function unobserved by independent MAP.
+  self.assertEqual(accepted(extra),(False,4))
+  # Preserve the actual positive: independently witnessed MAP and
+  # translation metadata both name the extra synthetic DOL function.
+  self.assertEqual(accepted(extra,map_text=MAP+'80004008 included\n'),(True,0))
  def test_conflicting_duplicate_json_quality_keys_must_not_pass_static_compatibility(self):
   for first in ('1','-1','null','"unsupported"','true'):
    with self.subTest(first=first):

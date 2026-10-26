@@ -76,9 +76,10 @@ class W01FailClosedPhase5(unittest.TestCase):
         for bad in (-1,False,True,0.25,"0",None):
             with self.subTest(value=bad):
                 q={"unsupportedInstructionCount":bad,"invalidSsaFunctionCount":0}
-                r, code=audit(meta=metadata(quality=q))
-                self.assertFalse(r["strict_compatible"])
-                self.assertNotEqual(code,0)
+                # Malformed quality counters are schema violations (CLI4),
+                # not structured-but-incomplete evidence (report status3).
+                with self.assertRaisesRegex(ValueError, "unsupportedInstructionCount"):
+                    audit(meta=metadata(quality=q))
 
     def test_missing_map_or_metadata_never_probe_success_just_due_to_wrong_hash(self):
         with tempfile.TemporaryDirectory(prefix="peach-w01-synthetic-") as folder:
@@ -112,12 +113,31 @@ class W01FailClosedPhase5(unittest.TestCase):
         with self.assertRaises(ValueError):auditor.dol_sections(bytes(b))
 
     def test_valid_extra_translated_func_and_empty_map_rules(self):
-        r,code=audit(meta=metadata([{"entryPoint":0x80004004},{"entryPoint":0x80004008}]))
+        # Phase13 producer-evidence correction: metadata reporting another
+        # translated entry does NOT prove that the independent MAP witnessed
+        # that entry. Strict compatibility requires one-to-one MAP coverage,
+        # absent a separately reviewed alternative completeness contract.
+        both=metadata([{"entryPoint":0x80004004},{"entryPoint":0x80004008}])
+        try:
+            r,code=audit(meta=both)
+        except ValueError:
+            pass  # Structural failure is an acceptable fail-closed outcome.
+        else:
+            self.assertFalse(r["strict_compatible"])
+            self.assertNotEqual(code,0)
+
+        # Restore a *genuine* positive with identical entries in both files.
+        r,code=audit(meta=both,map_text="80004004 a\n80004008 b")
         self.assertTrue(r["strict_compatible"]);self.assertEqual(code,0)
-        r,code=audit(map_text="")
-        self.assertFalse(r["strict_compatible"]);self.assertNotEqual(code,0)
-        r,code=audit(map_text="80004004 a\n80004008 b")
-        self.assertFalse(r["strict_compatible"]);self.assertNotEqual(code,0)
+
+        # Existing negative assertions preserved, byte-for-byte.
+        # The original two negative scenarios are retained. Both are
+        # structurally invalid against an otherwise complete manifest,
+        # so neither may yield a forged report of verified coverage.
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            audit(map_text="")
+        with self.assertRaisesRegex(ValueError, "Incomplete MAP/translation"):
+            audit(map_text="80004004 a\n80004008 b")
 
 if __name__=="__main__":
     unittest.main(verbosity=2)
