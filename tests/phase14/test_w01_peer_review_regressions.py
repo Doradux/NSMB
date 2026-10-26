@@ -250,5 +250,55 @@ class FifthRoundYamlPlainScalarGrammarGate(unittest.TestCase):
                 self.assert_compatible(profile() + "extra: " + value + "\n")
 
 
+class SixthRoundYamlUnicodeAndMergeGate(unittest.TestCase):
+    """Peer R5: Unicode whitespace, merge token, nonprintable points."""
+
+    def reject(self, doc):
+        with self.assertRaises(ValueError):
+            analyze(yaml=doc)
+        for probe in (False, True):
+            with self.subTest(probe=probe):
+                proc=run_cli(yaml=doc,probe=probe)
+                self.assertEqual(proc.returncode,4,proc.stdout+proc.stderr)
+                self.assertNotIn('"strict_compatible": true',proc.stdout.lower())
+
+    def accept(self, doc):
+        report,code=analyze(yaml=doc)
+        self.assertEqual(code,0,report)
+        self.assertTrue(report["strict_compatible"])
+        for probe in (False,True):
+            with self.subTest(probe=probe):
+                self.assertEqual(run_cli(yaml=doc,probe=probe).returncode,0)
+
+    def test_luigi_unicode_whitespace_cannot_create_required_maps(self):
+        for space in ("\u00a0","\u2002","\u2003","\u2009","\u202f","\u3000"):
+            with self.subTest(space=hex(ord(space))):
+                doc=profile().replace("inputs:\n","inputs: "+space+"\n")
+                doc=doc.replace("translation:\n","translation: "+space+"\n")
+                self.reject(doc)
+
+    def test_luigi_valid_unicode_inside_plain_value(self):
+        self.accept(profile()+"extra: valid\u00a0text\n")
+
+    def test_peach_implicit_merge_tag_cannot_be_plain_scalar(self):
+        self.reject(profile()+"extra: <<\n")
+        self.reject(profile()+"extra:\n  merge_like: <<\n")
+
+    def test_peach_valid_less_than_plain_values(self):
+        for suffix in ("extra: <<a\n","extra: normal <<\n","extra: <\n"):
+            self.accept(profile()+suffix)
+
+    def test_toad_forbidden_unicode_nonprintables(self):
+        for ch in ("\ufffe","\uffff"):
+            self.reject(profile()+"extra: valid"+ch+"value\n")
+            self.reject(profile().replace("game_id: SYNTHETIC",
+                                           "game_id: SYN"+ch+"THETIC"))
+
+    def test_toad_valid_unicode_and_interior_punctuation(self):
+        for suffix in ("extra: Señal válida\n","extra: foo\ufffdbar\n",
+                       "extra: foo,bar]curly}value\n"):
+            self.accept(profile()+suffix)
+
+
 if __name__ == "__main__":
     unittest.main()

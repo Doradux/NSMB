@@ -98,11 +98,13 @@ def profile_info(text):
     # though YAML cannot contain them, synthesizing bogus root mappings.
     if any((ord(char) < 0x20 and char not in "\n\r")
            or 0x7F <= ord(char) <= 0x9F
+           or 0xD800 <= ord(char) <= 0xDFFF
+           or ord(char) in (0xFFFE, 0xFFFF)
            or char in "\ufeff\u2028\u2029"
            for char in text):
         raise ValueError("Unsupported YAML control character or line separator")
     for number, raw in enumerate(text.replace("\r\n", "\n").replace("\r", "\n").split("\n"), 1):
-        if not raw.strip() or raw.lstrip().startswith("#"):
+        if not raw.strip(" \t") or raw.lstrip(" \t").startswith("#"):
             continue
         indent = len(raw) - len(raw.lstrip(" "))
         if "\t" in raw[:len(raw) - len(raw.lstrip())]:
@@ -142,7 +144,7 @@ def profile_info(text):
         if body.startswith("-"):
             if parents != entry_path or not body.startswith("- "):
                 raise ValueError(f"Unsupported YAML sequence on line {number}")
-            value = body[2:].split(" #", 1)[0].strip()
+            value = body[2:].split(" #", 1)[0].strip(" \t")
             if "entry" in seen:
                 raise ValueError("Multiple translation entry points require separate evidence")
             if not ENTRY_VALUE.fullmatch(value):
@@ -158,11 +160,11 @@ def profile_info(text):
         if not match:
             raise ValueError(f"Unsupported profile YAML syntax on line {number}")
         key, value = match.groups()
-        value = (value or "").strip()
+        value = (value or "").strip(" \t")
         if value.startswith("#"):
             value = ""
         else:
-            value = value.split(" #", 1)[0].strip()
+            value = value.split(" #", 1)[0].strip(" \t")
         # Inline flow collections, tags, anchors, aliases, quotes and block
         # scalars require real YAML evaluation. In this restricted evidence
         # grammar they are prohibited, even under an unrelated root key.
@@ -170,7 +172,7 @@ def profile_info(text):
         # missing-required-field error; arbitrary flow syntax stays rejected.
         if value and value != "{}" and (
             value[0] in YAML_RESERVED_PLAIN_START
-            or value == "-"
+            or value in ("-", "<<")
             or value.startswith("- ")
             or re.search(r":(?:[ \t]|$)", value)
             or "\t" in value
