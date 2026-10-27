@@ -26,13 +26,25 @@ const variants=[
     '(void)expectedPc; /* deliberate test-only bug: expected PC omitted */',
     'wrong expected PC denies before mutation'],
   ['scheduler reentry gate removed',
-    'if(dispatching || serviceExecuting)return Status::executing;',
+    'if(busy)return Status::executing;',
     '/* deliberate test-only bug: W03 reentry allowed */',
     'native callback cannot reenter trusted service during dispatch'],
   ['global reset quiescence gate removed',
     'if(dispatching || serviceExecuting){lastError=8;return;}',
     '/* deliberate test-only bug: reset during MMIO callback */',
-    'MMIO callback occurs INSIDE active scheduler tick']
+    'MMIO callback occurs INSIDE active scheduler tick'],
+  ['global failed-attempt token revocation removed',
+    'if(authorized)t->outstandingService=0;',
+    '/* deliberate test-only bug: leaked nonce to copied tickets */',
+    'wrong PC invalidates OTHER copied tokens globally'],
+  ['busy cross-context capability revocation removed',
+    'if(authorized)t->outstandingService=0;',
+    'if(authorized && !busy)t->outstandingService=0; /* bad: busy copy survives */',
+    'foreign outstanding COPY retired by denied reentrant attempt'],
+  ['caller-side failed-attempt token consumption removed',
+    'ticket.serial_=0;',
+    '/* deliberate test-only bug: caller can retry failed token */',
+    'wrong-PC token remains consumed after subsequent issuance']
 ];
 for(const [name,from,to,failLabel] of variants) {
   test('RED control: '+name+' breaks actual W03 native proof',t=>{

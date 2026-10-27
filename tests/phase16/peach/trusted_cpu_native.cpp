@@ -29,6 +29,7 @@ int nsmbw_loop_suspend(uint32_t);
 int nsmbw_loop_resume(uint32_t);
 int nsmbw_loop_cancel(uint32_t);
 int nsmbw_loop_reap(uint32_t);
+int nsmbw_loop_retry_quota(uint32_t);
 uint32_t nsmbw_mem_pages();
 int nsmbw_mem_set_page_budget(uint32_t);
 uint32_t nsmbw_mem_read32(uint32_t);
@@ -47,12 +48,17 @@ int spawn(uint32_t id,uint32_t input=0x80004000u) {
                               input,0x8000C000u+id*0x1000u,0u);
 }
 Status reentryStatus=Status::ok;
+Status foreignReentryStatus=Status::ok;
 Ticket deviceLease{};
+Ticket foreignLease{};
+Ticket foreignCopy{};
 bool callbackResetBlocked=false;
 int callbackCancel=99, callbackSpawn=99, callbackNestedTick=99;
 NSMBDevice::Reply onDevice(NSMBDevice::Region,NSMBDevice::Operation,
                           uint32_t,uint32_t,uint32_t) noexcept {
   reentryStatus=publishSyntheticPair(deviceLease,ENTRY+8u,0xF0E0D0C0B0A09080ULL);
+  foreignReentryStatus=publishSyntheticPair(foreignLease,ENTRY+4u,
+                                           0x0000000FABCDEFFFULL);
   nsmbw_loop_reset();
   callbackResetBlocked=nsmbw_loop_state(1)==1 && nsmbw_loop_pc(1)==ENTRY+8u;
   callbackCancel=nsmbw_loop_cancel(1);
@@ -88,13 +94,14 @@ int main(){
   check(nsmbw_mem_pages()==0,"wrong PC does not allocate guest RAM");
   check(nsmbw_mem_write32(0x80011000u,0xAABBCCDDu)==1,
         "seed authentic W04 word for mutation negative oracle");
-  check(publishSyntheticPair(a,ENTRY+8u,42)==Status::pcMismatch &&
+  auto freshForRamCheck=leaseSynthetic(1);
+  check(publishSyntheticPair(freshForRamCheck,ENTRY+8u,42)==Status::pcMismatch &&
         nsmbw_mem_read32(0xC0011000u)==0xAABBCCDDu,
         "wrong PC cannot change existing checked guest RAM word");
   // Issuing replacement token invalidates previous ticket without touching CPU.
   auto newer=leaseSynthetic(1);
-  check(publishSyntheticPair(a,ENTRY,0)==Status::stale,
-        "older lease denied after newer issuance");
+  check(publishSyntheticPair(a,ENTRY,0)==Status::invalidTicket,
+        "wrong-PC token remains consumed after subsequent issuance");
   check(publishSyntheticPair(newer,ENTRY,0x100000002ULL)==Status::ok,
         "trusted service commits synthetic time pair into REAL scheduler CPU");
   check(nsmbw_loop_cpu_gpr(1,3)==1&&nsmbw_loop_cpu_gpr(1,4)==2,
@@ -139,10 +146,16 @@ int main(){
         "scheduler tick invalidates outstanding capability");
   check(nsmbw_mem_pages()>0,"actual W03 stwu touched checked guest RAM");
   auto afterStep=leaseSynthetic(1);
+  auto copiedWrongPc=afterStep;
   check(publishSyntheticPair(afterStep,ENTRY,0)==Status::pcMismatch,
         "old PC denied after scheduled CPU transition");
-  check(publishSyntheticPair(afterStep,ENTRY+4u,0xABCDEF0102030405ULL)==Status::ok,
-        "current expectedPC can commit new register pair");
+  check(publishSyntheticPair(afterStep,ENTRY+4u,9)==Status::invalidTicket,
+        "wrong PC consumes caller ticket even without guest mutation");
+  check(publishSyntheticPair(copiedWrongPc,ENTRY+4u,9)==Status::stale,
+        "wrong PC invalidates OTHER copied tokens globally");
+  auto currentPc=leaseSynthetic(1);
+  check(publishSyntheticPair(currentPc,ENTRY+4u,0xABCDEF0102030405ULL)==Status::ok,
+        "current expectedPC can commit via FRESH token only");
   check(nsmbw_loop_pc(1)==ENTRY+4u,"successful service preserves current PC");
   check(nsmbw_loop_cpu_gpr(1,3)==0xABCDEF01u &&
         nsmbw_loop_cpu_gpr(1,4)==0x02030405u,
@@ -176,11 +189,22 @@ int main(){
   check(nsmbw_loop_frame(2)==2,"advance W03 stack instruction two times");
   check(nsmbw_loop_pc(1)==ENTRY+8u,"guest about to perform checked MMIO read");
   deviceLease=leaseSynthetic(1);
+  check(spawn(2)==1 && nsmbw_loop_frame(1)==1,
+        "second guest runs one genuine W03 step before MMIO reentry");
+  foreignLease=leaseSynthetic(2);
+  foreignCopy=foreignLease;
   check(nsmbw_mem_set_page_budget(2)==1,"finite W04 RAM quota");
   NSMBDevice::install(NSMBDevice::Region::Mmio,onDevice);
   check(nsmbw_loop_frame(1)==1,"MMIO callback occurs INSIDE active scheduler tick");
   check(reentryStatus==Status::executing,
         "native callback cannot reenter trusted service during dispatch");
+  check(foreignReentryStatus==Status::executing,
+        "MMIO callback cannot publish a DIFFERENT READY guest's registers");
+  check(publishSyntheticPair(foreignCopy,ENTRY+4u,0xAAULL)==Status::stale,
+        "foreign outstanding COPY retired by denied reentrant attempt");
+  check(nsmbw_loop_state(2)==1 && nsmbw_loop_pc(2)==ENTRY+4u &&
+        nsmbw_loop_cpu_gpr(2,3)==0 && nsmbw_loop_cpu_gpr(2,4)==0x80004000u,
+        "foreign guest CPU remains READY with unchanged GPR/PC after rejected reentry");
   check(callbackResetBlocked,"MMIO callback cannot RESET active W03 scheduler");
   check(callbackCancel==0,"MMIO callback cannot CANCEL running guest");
   check(callbackSpawn==0,"MMIO callback cannot SPAWN while dispatch busy");
@@ -208,6 +232,29 @@ int main(){
         "paused guest cannot issue synthetic service lease");
   check(nsmbw_loop_resume(1)==1,"resume from pause");
   check(nsmbw_loop_state(1)==1,"restored guest ready");
+  // Quota failures are a native W04/W07 fault, never synthetic HLE success.
+  // Service grants issued BEFORE a fault cannot be replayed after fault/retry.
+  nsmbw_loop_reset();
+  check(spawn(1)==1 && nsmbw_mem_set_page_budget(0)==1,
+        "quota0 guest accepts spawn without allocating pages");
+  auto preQuota=leaseSynthetic(1);
+  check(nsmbw_loop_frame(1)==1 && nsmbw_loop_state(1)==4 &&
+        nsmbw_loop_guest_error(1)==3,
+        "real W03/W04 quota fault marks guest FAULT with status3");
+  check(nsmbw_mem_pages()==0 && nsmbw_loop_pc(1)==ENTRY &&
+        nsmbw_loop_cpu_lr(1)==EXIT && nsmbw_loop_cpu_gpr(1,1)==0x80006010u,
+        "quota denial preserves guest PC/LR/SP and zero ghost pages");
+  check(publishSyntheticPair(preQuota,ENTRY,0xFFFFFFFF00000005ULL)!=Status::ok &&
+        nsmbw_loop_cpu_gpr(1,3)==0 && nsmbw_loop_cpu_gpr(1,4)==0x80004000u,
+        "faulted guest denies pre-fault ticket with no partial pair update");
+  check(nsmbw_mem_set_page_budget(2)==1 && nsmbw_loop_retry_quota(1)==1,
+        "native quota growth+explicit retry returns guest READY");
+  auto postQuota=leaseSynthetic(1);
+  check(publishSyntheticPair(postQuota,ENTRY,0x1234567800000009ULL)==Status::ok,
+        "fresh ticket after validated retry can publish only on READY guest");
+  check(nsmbw_loop_cpu_gpr(1,3)==0x12345678u&&
+        nsmbw_loop_cpu_gpr(1,4)==9 && nsmbw_mem_pages()==0,
+        "post-retry register pair remains exact and no RAM pages leaked");
   // Bounded deterministic authority stress: ID recycling through both
   // reset and reap must never make old tickets valid, even if their guest
   // ID and expected PC happen to match a newly created context.

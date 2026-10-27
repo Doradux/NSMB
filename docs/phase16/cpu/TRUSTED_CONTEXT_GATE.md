@@ -35,7 +35,8 @@ C++-ONLY declarations (never decorated `extern "C"`, `EXPORT` or
 
 Tickets are native C++ capabilities. The `Ticket` constructor and all
 fields are private and a default-constructed Ticket is always invalid.
-Ticket copies cannot replay after first use. A private monotonically
+Ticket copies cannot replay after the **first attempt**, including wrong-PC
+or other denied attempts; the nonce is also retired in the W03 context. A private monotonically
 increasing **64-bit serviceOwner and per-lease serial** plus reset epoch
 protects guest ID recycling, stale lease reuse and reset. Serial and
 epoch wrap/exhaustion FAIL CLOSED rather than permitting reuse.
@@ -62,7 +63,8 @@ with synthetic lastError 8; successful `publishSyntheticPair` is
 permitted only **outside active dispatch**, only on READY kind=1 CPU
 contexts, and only with exact current expected PC.
 
-A test-installed **typed W07 MMIO callback** tries `publish`, W03
+A test-installed **typed W07 MMIO callback** tries `publish` against
+the current guest and another READY guest, W03
 reset, cancel, spawn and nested tick during the actual guest
 `LWZ` stage. Every attempt is rejected; the device's own status5 fault
 persists without publishing fake r3/r4 values, moving PC, or
@@ -92,13 +94,13 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD node --test \
 The first Node method builds **real linked C++** from the W03 scheduler
 and existing W04/W07 sources using local g++ with
 `-std=c++17 -O2 -Wall -Wextra -Werror -pedantic`, then runs
-**70 independently labeled assertions** on the native executable.
+**83 independently labeled assertions** on the native executable.
 These 67 checks are NOT 67 Node test methods.
 
-The other 3 Node tests build temporary **RED variants of the actual
-W03 source** in isolated `/tmp` directories: removing expected-PC
-validation, removing the non-reentrant service gate or removing the
-scheduler reset quiescence check causes explicit native adversarial
+The other 6 Node tests build temporary **RED variants of the actual
+W03 source** in isolated `/tmp` directories: removing expected-PC validation, the non-reentrant service gate,
+scheduler reset quiescence, global revoked nonce on failed publication,
+cross-guest callback ticket retirement, or caller-side ticket consumption causes explicit native adversarial
 test failures with exit2. The tracked code is never mutated by these
 negative controls. The source with the protections enabled is GREEN.
 

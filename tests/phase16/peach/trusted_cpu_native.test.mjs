@@ -17,7 +17,7 @@ const sources=[
   'web-runtime/interop/device_policy.cpp',
   'web-runtime/runtime-services/input_snapshot.cpp'
 ].map(x=>join(root,x));
-test('ACTUAL native W03+W04/W07 scheduler enforces 70 CPU lease and lifecycle checks',t=>{
+test('ACTUAL native W03+W04/W07 scheduler enforces 83 CPU lease and lifecycle checks',t=>{
   const scratch=mkdtempSync(join(tmpdir(),'nsmb-p16-trusted-cpu-'));
   t.after(()=>rmSync(scratch,{recursive:true,force:true}));
   const binary=join(scratch,'w03_trusted');
@@ -28,6 +28,6 @@ test('ACTUAL native W03+W04/W07 scheduler enforces 70 CPU lease and lifecycle ch
   assert.equal(compile.status,0,compile.stderr || compile.error?.message);
   const result=spawnSync(binary,[],{encoding:'utf8',timeout:10000});
   assert.equal(result.status,0,result.stderr||result.stdout);
-  assert.match(result.stdout,/TOTAL_CHECKS 70\s*$/);
-  assert.equal((result.stdout.match(/^PASS /gm)||[]).length,70);
+  assert.match(result.stdout,/TOTAL_CHECKS 83\s*$/);
+  assert.equal((result.stdout.match(/^PASS /gm)||[]).length,83);
 });

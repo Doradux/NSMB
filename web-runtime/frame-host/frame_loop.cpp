@@ -126,22 +126,31 @@ Ticket leaseSynthetic(uint32_t guest) noexcept {
 }
 Status publishSyntheticPair(Ticket& ticket,uint32_t expectedPc,
                             uint64_t ticks) noexcept {
-  if(dispatching || serviceExecuting)return Status::executing;
-  if(!ticket.guest_ || !ticket.serial_)return Status::invalidTicket;
+  // Fail closed: every attempt consumes its caller-side ticket, including
+  // wrong-PC, reentrant, unsupported and stale attempts. A valid in-flight
+  // ticket also retires globally BEFORE checking mutable guest state so
+  // copies cannot be replayed after a failed authorization attempt.
+  const uint64_t offeredSerial=ticket.serial_;
+  ticket.serial_=0;
+  const bool busy=dispatching || serviceExecuting;
+  if(!ticket.guest_ || !offeredSerial)
+    return busy ? Status::executing : Status::invalidTicket;
   auto* t=find(ticket.guest_);
-  if(!t || ticket.epoch_!=serviceEpoch || serviceExhausted ||
-     t->serviceOwner!=ticket.owner_ ||
-     t->outstandingService!=ticket.serial_ || !t->serviceOwner)
-    return Status::stale;
+  const bool authorized=t && ticket.epoch_==serviceEpoch &&
+     !serviceExhausted && t->serviceOwner==ticket.owner_ &&
+     t->outstandingService==offeredSerial && t->serviceOwner!=0;
+  // Retire a valid ticket EVEN when a separate guest is dispatching.
+  // An MMIO callback must not leave replayable copies for later use.
+  if(authorized)t->outstandingService=0;
+  if(busy)return Status::executing;
+  if(!authorized)return Status::stale;
   if(t->state!=READY || t->kind!=1)return Status::notReady;
   if(t->cpu.pc!=expectedPc)return Status::pcMismatch;
   serviceExecuting=true;
   // No checked memory/device calls. Exactly two GPR writes in one native
-  // operation, then capability retirement. Neither PC nor stack advances.
+  // operation; neither PC nor stack advances. Checked RAM unchanged.
   t->cpu.gpr[3]=static_cast<uint32_t>(ticks>>32u);
   t->cpu.gpr[4]=static_cast<uint32_t>(ticks);
-  t->outstandingService=0;
-  ticket.serial_=0;
   serviceExecuting=false;
   return Status::ok;
 }
