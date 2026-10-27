@@ -27,7 +27,11 @@ struct Outcome {
 // may mint one; synthetic tests define a LOCAL issuer fake to test this seam.
 // This is a compile-time authority boundary, not cryptographic attestation.
 class Time64Permit final {
+  // A test producer can exist ONLY in a binary compiled with this explicit
+  // synthetic-only test flag. Normal production builds contain no issuer.
+#if defined(NSMB_PHASE16_TIME64_SYNTHETIC_TEST)
   friend class ::nsmbw::w03::Time64PermitIssuer;
+#endif
   friend class Time64EpochService;
   Time64EpochService* owner_;
   unsigned slot_;

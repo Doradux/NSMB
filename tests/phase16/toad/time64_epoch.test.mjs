@@ -14,7 +14,7 @@ const source=join(inc,'time64_epoch_service.hpp');
 function compile(tmp, override=false, sourceName=native) {
   const output=join(tmp,override?'mutated':'original');
   return {output,result:spawnSync('g++',['-std=c++17','-O2','-Wall','-Wextra',
-    '-Werror','-pedantic',...(override?['-I',tmp]:[]),'-I',inc,sourceName,
+    '-Werror','-pedantic',...(sourceName===native?['-DNSMB_PHASE16_TIME64_SYNTHETIC_TEST']:[]),...(override?['-I',tmp]:[]),'-I',inc,sourceName,
     '-o',output],{encoding:'utf8',timeout:30000})};
 }
 test('native C++ 55 atomic+epoch checks at -Werror',t=>{
@@ -56,6 +56,25 @@ test('untrusted callers cannot construct or copy capability in normal C++',t=>{
   assert.notEqual(result.status,0,'private default constructor should block fake issuer');
   assert.match(result.stderr,/Time64Permit/);
 });
+test('synthetic issuer class cannot mint a ticket without test-only build flag',t=>{
+  const dir=mkdtempSync(join(tmpdir(),'nsmb-p16-fakeissuer-'));
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const path=join(dir,'fakeissuer.cpp');
+  writeFileSync(path, `#include "time64_epoch_service.hpp"\n
+namespace nsmbw::w03 {
+class Time64PermitIssuer { public:
+  static nsmbw::w16::Time64Permit mint(nsmbw::w16::Time64EpochService& service) {
+    return nsmbw::w16::Time64Permit(service, 0, 1, 0, nsmbw::w16::Act::open, true);
+  }
+};
+}
+int main() { nsmbw::w16::Time64EpochService service;
+  auto cap=nsmbw::w03::Time64PermitIssuer::mint(service); (void)cap; }
+`);
+  const {result}=compile(dir,false,path);
+  assert.notEqual(result.status,0,'production build must not admit fake issuer');
+  assert.match(result.stderr,/private within this context/);
+});
 test('JS Time64 BigInt fuzz bounded near uint64, no Number precision',()=>{
   let seed=0x8d09c671n;
   for(let i=0;i<1024;i++){
@@ -80,6 +99,7 @@ test('reject overflow, regressions and independent owner mixing',()=>{
 test('new time64 service is not production HLE or public JS issuer',()=>{
   const hdr=readFileSync(source,'utf8');
   assert.match(hdr,/namespace nsmbw::w03 \{ class Time64PermitIssuer; \}/);
+  assert.match(hdr,/#if defined\(NSMB_PHASE16_TIME64_SYNTHETIC_TEST\)/);
   assert.match(hdr,/Time64Permit\(const Time64Permit&\) = delete/);
   assert.doesNotMatch(hdr,/extern\s+"C"/);
   for (const runtime of ['web-runtime/frame-host/frame_loop.cpp','web-runtime/runtime-services/tick_host.mjs']){

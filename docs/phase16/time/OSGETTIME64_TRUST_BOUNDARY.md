@@ -28,7 +28,10 @@ survives reset to block ABA and generation overflow reuse. Reset needs
 a trusted issuer's positive quiescence observation.
 
 `nsmbw::w03::Time64PermitIssuer` is a **forward declaration only**.
-There is NO production issuer definition, callsite, registered HLE or
+The sole friend issuer is additionally fenced behind compile flag
+\`NSMB_PHASE16_TIME64_SYNTHETIC_TEST\` used ONLY for native tests. Normal
+builds cannot mint a permit even by defining the fake issuer class. There is NO
+production issuer definition, callsite, registered HLE or
 JS/Wasm export. Tests define a local fake issuer in the executable solely
 to verify the boundary; a fake is NOT evidence of W03 authorization.
 C++ private constructors are **not cryptographic authentication**.
