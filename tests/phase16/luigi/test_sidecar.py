@@ -1,8 +1,9 @@
 """Entire W16 provenance suite is newly invented and synthetic."""
 from dataclasses import replace
 import json
+import struct
 import unittest
-from scripts.phase16.luigi.fixtures import ROOT,WALK,SEED,MAP_BYTES,CONFIG_BYTES,fixture,encode
+from scripts.phase16.luigi.fixtures import ROOT,WALK,SEED,MAP_BYTES,CONFIG_BYTES,SOURCE_BYTES,fixture,encode
 from scripts.phase16.luigi.sidecar import verify,digest
 
 
@@ -10,7 +11,7 @@ class VersionedSyntheticEvidence(unittest.TestCase):
     def setUp(self):
         self.manifest,self.metadata,self.anchors=fixture()
 
-    def check(self,manifest=None,metadata=None,anchors=None,resealed=True,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES):
+    def check(self,manifest=None,metadata=None,anchors=None,resealed=True,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES,source_bytes=SOURCE_BYTES):
         m=self.manifest if manifest is None else manifest
         wire=encode(m)
         data=self.metadata if metadata is None else metadata
@@ -18,7 +19,7 @@ class VersionedSyntheticEvidence(unittest.TestCase):
         if resealed:
             trusted=replace(trusted,sidecar_sha256=digest(wire),
                             metadata_sha256=digest(data))
-        return verify(wire,data,trusted,map_bytes=map_bytes,config_bytes=config_bytes)
+        return verify(wire,data,trusted,map_bytes=map_bytes,config_bytes=config_bytes,source_bytes=source_bytes)
 
     def deny(self,fragment,**kw):
         with self.assertRaisesRegex(ValueError,fragment):
@@ -36,7 +37,7 @@ class VersionedSyntheticEvidence(unittest.TestCase):
     def test_unpinned_manifest_tamper_denied(self):
         wire=encode(self.manifest).replace(b'"version":1',b'"version":2')
         with self.assertRaisesRegex(ValueError,'bytes changed'):
-            verify(wire,self.metadata,self.anchors,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES)
+            verify(wire,self.metadata,self.anchors,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES,source_bytes=SOURCE_BYTES)
 
     def test_resealed_manifest_still_never_authenticates(self):
         m=dict(self.manifest);m["runId"]="1234567890abcdef1234567890abcdef"
@@ -46,16 +47,38 @@ class VersionedSyntheticEvidence(unittest.TestCase):
 
     def test_mutated_metadata_without_anchor_update_rejected(self):
         with self.assertRaisesRegex(ValueError,'bytes changed'):
-            verify(encode(self.manifest),self.metadata+b' ',self.anchors,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES)
+            verify(encode(self.manifest),self.metadata+b' ',self.anchors,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES,source_bytes=SOURCE_BYTES)
 
     def test_mutated_metadata_after_repin_still_not_bound(self):
         obj=json.loads(self.metadata);obj["functions"][0]["sha256"]="0"*64
         self.deny('metadata binding mismatch',metadata=encode(obj))
 
+    def test_actual_invented_source_bytes_are_required_not_just_claimed_hash(self):
+        modified=SOURCE_BYTES[:-1]+bytes([SOURCE_BYTES[-1]^0x01])
+        self.deny('invented source bytes',source_bytes=modified)
+
+    def test_forged_source_section_header_rejected_even_after_repin(self):
+        data=bytearray(SOURCE_BYTES)
+        struct.pack_into(">I",data,0x48,0x80004100)
+        changed=bytes(data)
+        m=dict(self.manifest);m["sourceSha256"]=digest(changed)
+        anchor=replace(self.anchors,source_sha256=digest(changed))
+        self.deny('executable ranges differ from source',
+                  manifest=m,anchors=anchor,source_bytes=changed)
+
+    def test_resealed_invented_source_body_still_not_attested(self):
+        data=bytearray(SOURCE_BYTES);data[0x200]^=1
+        changed=bytes(data)
+        m=dict(self.manifest);m["sourceSha256"]=digest(changed)
+        anchor=replace(self.anchors,source_sha256=digest(changed))
+        result=self.check(manifest=m,anchors=anchor,source_bytes=changed)
+        self.assertFalse(result.producer_attested)
+        self.assertFalse(result.authentic_release_eligible)
+
     def test_source_identity_swapped_denied(self):
         m=dict(self.manifest);m["sourceSha256"]=digest(b"other invented DOL")
         self.deny('source identity mismatch',manifest=m)
-        self.deny('source identity mismatch',anchors=replace(self.anchors,source_sha256=digest(b"other")))
+        self.deny('invented source bytes',anchors=replace(self.anchors,source_sha256=digest(b"other")))
 
     def test_root_or_run_id_mismatch_rejected(self):
         m=dict(self.manifest);m["root"]=WALK
@@ -189,7 +212,7 @@ class VersionedSyntheticEvidence(unittest.TestCase):
         wire=encode(self.manifest).replace(original,b'"root":2147500032,"r\\u006fot":2147500032')
         anchors=replace(self.anchors,sidecar_sha256=digest(wire))
         with self.assertRaisesRegex(ValueError,'Duplicate'):
-            verify(wire,self.metadata,anchors,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES)
+            verify(wire,self.metadata,anchors,map_bytes=MAP_BYTES,config_bytes=CONFIG_BYTES,source_bytes=SOURCE_BYTES)
 
     def test_missing_metadata_sha_and_bad_function_digest_denied(self):
         obj=json.loads(self.metadata);del obj["functions"][1]["sha256"]

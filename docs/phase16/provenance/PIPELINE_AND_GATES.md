@@ -47,6 +47,9 @@ events. All schema keys are exact. No unknown fields accepted.
   and metadata digest all require a separate explicit external anchor.
   Actual public SYNTHETIC MAP/config files are also byte-hashed, and
   the parsed MAP inventory must exactly equal the claimed mapSeeds.
+  A freshly invented DOL-format byte array is also hashed, parsed by the
+  unchanged W01 DOL-section reader, and its executable ranges must match
+  the separately pinned section witness. Original Wii DOL data are not used.
 - ExecutableRanges are disjoint and must match the external declared range
   witness. This synthetic range witness is NOT a private DOL verification.
 - Event stream: contiguous seq, first root; declaration events for the

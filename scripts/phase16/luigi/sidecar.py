@@ -8,6 +8,7 @@ import sys
 import unicodedata
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from strict_translation_metadata import load_translation_json, parse_translation_metadata, quality_clean, strict_uint32
+from audit_profile import dol_sections
 
 FORMAT = "nsmb-public-synthetic-provenance"
 PINNED_UPSTREAM = "20f0158dd1d96bd94f821adf80ee361e4fbd414e"
@@ -56,10 +57,10 @@ class StructuralVerdict:
     producer_attested: bool = False
     authentic_release_eligible: bool = False
 
-def verify(sidecar_bytes: bytes, metadata_bytes: bytes, anchors: TrustedAnchors, *, map_bytes: bytes, config_bytes: bytes) -> StructuralVerdict:
-    if any(type(b) is not bytes for b in (sidecar_bytes,metadata_bytes,map_bytes,config_bytes)):
+def verify(sidecar_bytes: bytes, metadata_bytes: bytes, anchors: TrustedAnchors, *, map_bytes: bytes, config_bytes: bytes, source_bytes: bytes) -> StructuralVerdict:
+    if any(type(b) is not bytes for b in (sidecar_bytes,metadata_bytes,map_bytes,config_bytes,source_bytes)):
         raise ValueError("raw bytes required")
-    if max(map(len,(sidecar_bytes,metadata_bytes,map_bytes,config_bytes))) > MAX_BYTES:
+    if max(map(len,(sidecar_bytes,metadata_bytes,map_bytes,config_bytes,source_bytes))) > MAX_BYTES:
         raise ValueError("evidence size exceeds bound")
     for name in ("sidecar_sha256","metadata_sha256","source_sha256","config_sha256","map_sha256"):
         check_sha(getattr(anchors,name),"anchor "+name)
@@ -72,6 +73,8 @@ def verify(sidecar_bytes: bytes, metadata_bytes: bytes, anchors: TrustedAnchors,
         raise ValueError("pinned evidence bytes changed")
     if digest(map_bytes)!=anchors.map_sha256 or digest(config_bytes)!=anchors.config_sha256:
         raise ValueError("MAP/config file bytes do not match externally pinned hashes")
+    if digest(source_bytes)!=anchors.source_sha256:
+        raise ValueError("invented source bytes do not match independently pinned hash")
     try:
         manifest=load_translation_json(sidecar_bytes.decode("utf-8"))
         metadata=parse_translation_metadata(metadata_bytes.decode("utf-8"))
@@ -106,6 +109,13 @@ def verify(sidecar_bytes: bytes, metadata_bytes: bytes, anchors: TrustedAnchors,
     sections.sort()
     if tuple(sections)!=anchors.executable_ranges:
         raise ValueError("declared section ranges differ from independent witness")
+    # Stronger INVENTED fixture evidence: parse real DOL header *structure*
+    # from freshly authored test bytes using unchanged W01 parser.
+    # This does NOT resolve the owner-original Wii DOL identity STOP.
+    header=dol_sections(source_bytes)
+    actual=tuple(sorted((row["start"],row["end"]) for row in header["sections"] if row["executable"]))
+    if actual!=tuple(sections):
+        raise ValueError("executable ranges differ from source file's section header")
     if any(y[0]<x[1] for x,y in zip(sections,sections[1:])):
         raise ValueError("overlapping declared executable sections")
     def inside(address):

@@ -25,6 +25,6 @@ untrusted and cannot be used to authenticate a producer.
 
 Repro (a unique EMPTY output directory, never containing user assets):
     python3 -B -m scripts.phase16.luigi.cli generate-invented --directory /tmp/w16-luigi-synthetic-example
-    python3 -B -m scripts.phase16.luigi.cli check --sidecar /tmp/w16-luigi-synthetic-example/sidecar.json --metadata /tmp/w16-luigi-synthetic-example/metadata.json --map-file /tmp/w16-luigi-synthetic-example/invented.map --config-file /tmp/w16-luigi-synthetic-example/invented.config --external-anchors /tmp/w16-luigi-synthetic-example/example-anchors-NOT-TRUSTED.json
+    python3 -B -m scripts.phase16.luigi.cli check --sidecar /tmp/w16-luigi-synthetic-example/sidecar.json --metadata /tmp/w16-luigi-synthetic-example/metadata.json --map-file /tmp/w16-luigi-synthetic-example/invented.map --config-file /tmp/w16-luigi-synthetic-example/invented.config --invented-source /tmp/w16-luigi-synthetic-example/invented-source.dol --external-anchors /tmp/w16-luigi-synthetic-example/example-anchors-NOT-TRUSTED.json
 
 Both commands return exit 3, without asserting any original Wii code.

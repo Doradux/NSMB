@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import replace
 import json
+import struct
 from .sidecar import TrustedAnchors, FORMAT, PINNED_UPSTREAM, digest
 
 ROOT=0x80004000
@@ -13,7 +14,16 @@ SEMI=0x80004500
 FAIL_DESCENDANT=0x80004600
 BOUNDS=((0x80004000,0x80005000),)
 RUN_ID="abcdeffedcba0123456789abcdef0123"
-SOURCE=digest(b"synthetic public executable inventory; not a Nintendo DOL")
+# Invented DOL-layout container: header and 4KiB of deterministic DATA,
+# NOT original PPC or any Nintendo executable bytes; never executed.
+SOURCE_ARRAY=bytearray(0x1100)
+struct.pack_into(">I",SOURCE_ARRAY,0,0x100)
+struct.pack_into(">I",SOURCE_ARRAY,0x48,0x80004000)
+struct.pack_into(">I",SOURCE_ARRAY,0x90,0x1000)
+struct.pack_into(">I",SOURCE_ARRAY,0xE0,0x80004000)
+SOURCE_ARRAY[0x100:0x1100]=bytes(range(256))*16
+SOURCE_BYTES=bytes(SOURCE_ARRAY)
+SOURCE=digest(SOURCE_BYTES)
 CONFIG_BYTES=b"synthetic config version1; not a game profile"
 MAP_BYTES=(f"{SEED:08X} invented-seed\n{SKIP:08X} invented-skip\n{SEMI:08X} invented-semi\n").encode("ascii")
 CONFIG=digest(CONFIG_BYTES)

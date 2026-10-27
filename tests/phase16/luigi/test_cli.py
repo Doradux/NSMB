@@ -27,6 +27,7 @@ class SidecarCliFailClosed(unittest.TestCase):
             self.assertIn("INVENTED_FIXTURE_ONLY",create.stdout)
             args=("check","--sidecar",d/"sidecar.json","--metadata",d/"metadata.json",
                   "--map-file",d/"invented.map","--config-file",d/"invented.config",
+                  "--invented-source",d/"invented-source.dol",
                   "--external-anchors",d/"example-anchors-NOT-TRUSTED.json")
             checked=self.call(*args)
             self.assertEqual(checked.returncode,3,checked.stderr)
@@ -44,6 +45,7 @@ class SidecarCliFailClosed(unittest.TestCase):
             path.write_bytes(path.read_bytes()+b" ")
             r=self.call("check","--sidecar",path,"--metadata",d/"metadata.json",
                         "--map-file",d/"invented.map","--config-file",d/"invented.config",
+                  "--invented-source",d/"invented-source.dol",
                         "--external-anchors",d/"example-anchors-NOT-TRUSTED.json")
             self.assertEqual(r.returncode,4)
             self.assertEqual(r.stdout,"")
@@ -59,6 +61,7 @@ class SidecarCliFailClosed(unittest.TestCase):
             path.write_text(json.dumps(data))
             r=self.call("check","--sidecar",d/"sidecar.json","--metadata",d/"metadata.json",
                         "--map-file",d/"invented.map","--config-file",d/"invented.config",
+                  "--invented-source",d/"invented-source.dol",
                         "--external-anchors",path)
             self.assertEqual(r.returncode,4)
             self.assertNotIn("authenticReleaseEligible",r.stdout)
@@ -71,6 +74,7 @@ class SidecarCliFailClosed(unittest.TestCase):
             path.write_bytes(b"X"*(2_000_001))
             r=self.call("check","--sidecar",path,"--metadata",d/"metadata.json",
                         "--map-file",d/"invented.map","--config-file",d/"invented.config",
+                  "--invented-source",d/"invented-source.dol",
                         "--external-anchors",d/"example-anchors-NOT-TRUSTED.json")
             self.assertEqual(r.returncode,4)
             self.assertNotIn("XXXXXXXX",r.stderr)

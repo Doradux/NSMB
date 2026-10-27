@@ -11,7 +11,7 @@ from dataclasses import fields
 import json
 from pathlib import Path
 import sys
-from .fixtures import fixture,encode,MAP_BYTES,CONFIG_BYTES
+from .fixtures import fixture,encode,MAP_BYTES,CONFIG_BYTES,SOURCE_BYTES
 from .sidecar import TrustedAnchors,verify,MAX_BYTES
 
 
@@ -32,6 +32,7 @@ def main(argv=None):
     audit.add_argument("--metadata",required=True)
     audit.add_argument("--map-file",required=True)
     audit.add_argument("--config-file",required=True)
+    audit.add_argument("--invented-source",required=True,help="ONLY invented DOL-format synthetic bytes, NOT an original Wii DOL")
     audit.add_argument("--external-anchors",required=True,
         help="supplied from an independent trust channel; self-copied values prove nothing")
     opts=parser.parse_args(argv)
@@ -44,6 +45,7 @@ def main(argv=None):
             (d/"metadata.json").write_bytes(metadata)
             (d/"invented.map").write_bytes(MAP_BYTES)
             (d/"invented.config").write_bytes(CONFIG_BYTES)
+            (d/"invented-source.dol").write_bytes(SOURCE_BYTES)
             from dataclasses import asdict
             (d/"example-anchors-NOT-TRUSTED.json").write_bytes(encode(asdict(anchor)))
             print("INVENTED_FIXTURE_ONLY; example anchors do NOT prove producer authenticity")
@@ -57,7 +59,8 @@ def main(argv=None):
             raise ValueError("external ranges schema")
         anchors["executable_ranges"]=tuple(tuple(row) for row in ranges)
         v=verify(file_bytes(opts.sidecar),file_bytes(opts.metadata),TrustedAnchors(**anchors),
-                 map_bytes=file_bytes(opts.map_file),config_bytes=file_bytes(opts.config_file))
+                 map_bytes=file_bytes(opts.map_file),config_bytes=file_bytes(opts.config_file),
+                 source_bytes=file_bytes(opts.invented_source))
         print(json.dumps({"status":"STRUCTURAL_ONLY_STOP","translatedCount":v.translated_count,
                           "recursiveCount":v.recursive_count,
                           "skippedMapSeeds":v.map_skipped_count,
