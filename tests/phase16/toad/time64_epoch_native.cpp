@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <new>
 #include <limits>
 #include <type_traits>
 #include <utility>
@@ -31,6 +32,8 @@ static_assert(!std::is_copy_constructible<Time64Permit>::value);
 static_assert(std::is_move_constructible<Time64Permit>::value);
 static_assert(!std::is_copy_assignable<Time64Permit>::value);
 static_assert(!std::is_move_assignable<Time64Permit>::value);
+static_assert(!std::is_copy_constructible<Time64EpochService>::value);
+static_assert(!std::is_move_constructible<Time64EpochService>::value);
 bool same(const CpuContext& a, const CpuContext& b) {
   return std::memcmp(&a, &b, sizeof(CpuContext))==0;
 }
@@ -132,5 +135,38 @@ int main() {
   check(allGood,"512 seeded native exact samples & PC/LR invariant");
   check(fuzzer.snapshot(1,after,ticks,gen)&&ticks==0&&gen==987&&same(after,cpu),
         "fuzz never changes unrelated guest");
+  // Independent peer finding: old owner destroyed, new owner placed at
+  // exactly the SAME machine address. Slot + generation + PC also match.
+  // Instance incarnation MUST prevent stale permit from touching new guest.
+  alignas(Time64EpochService) unsigned char reused[sizeof(Time64EpochService)]{};
+  auto* first = new (reused) Time64EpochService{};
+  void* firstAddress = static_cast<void*>(first);
+  check(first->open(Time64PermitIssuer::make(*first,0,1,cpu.pc,Act::open,false),cpu).committed(),
+        "ABA setup old instance open");
+  auto staleSample=Time64PermitIssuer::make(*first,0,1,cpu.pc,Act::sample,false);
+  auto staleReset=Time64PermitIssuer::make(*first,0,1,cpu.pc,Act::reset,true);
+  auto staleOpen=Time64PermitIssuer::make(*first,0,1,cpu.pc,Act::open,false);
+  auto staleAdvance=Time64PermitIssuer::make(*first,0,1,cpu.pc,Act::sample,false);
+  first->~Time64EpochService();
+  auto* replacement=new (reused) Time64EpochService{};
+  check(static_cast<void*>(replacement)==firstAddress,"ABA placement reuses same address");
+  check(replacement->open(Time64PermitIssuer::make(*replacement,0,1,cpu.pc,Act::open,false),cpu).committed(),
+        "ABA new instance same slot/generation/PC open");
+  check(replacement->publish(std::move(staleSample),0x123456789abcdef0ULL).error==Error::untrusted,
+        "ABA stale sample denied despite equal raw address");
+  check(replacement->reset(std::move(staleReset)).error==Error::untrusted,
+        "ABA stale reset denied despite correct quiet flag");
+  check(replacement->open(std::move(staleOpen),cpu).error==Error::untrusted,
+        "ABA stale open denied before occupied check");
+  check(replacement->advance(std::move(staleAdvance),1).error==Error::untrusted,
+        "ABA stale advance denied before reading recycled ledger");
+  check(replacement->snapshot(0,after,ticks,gen)&&same(after,cpu)&&ticks==0&&gen==1,
+        "ABA all stale calls preserve full CpuContext and ledger");
+  check(replacement->publish(Time64PermitIssuer::make(*replacement,0,1,cpu.pc,Act::sample,false),
+                             0x100000002ULL).committed(),
+        "ABA new legitimate instance still usable");
+  check(replacement->snapshot(0,after,ticks,gen)&&after.gpr[3]==1&&after.gpr[4]==2,
+        "ABA new instance can publish valid r3/r4 after denials");
+  replacement->~Time64EpochService();
   std::cout << "TOTAL_CHECKS " << checks << "\n";
 }

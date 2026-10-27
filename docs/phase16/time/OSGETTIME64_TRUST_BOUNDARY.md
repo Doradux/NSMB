@@ -24,7 +24,14 @@ the ticket, even rejected attempts; wrong instance/action/slot/epoch/PC
 or operation fail before touching context or time ledger. Both r3/r4
 registers and ledger update ONLY after all validation. Generation starts
 at nonzero, increases strictly across reset, and its retired watermark
-survives reset to block ABA and generation overflow reuse. Reset needs
+survives reset. Additionally each newly constructed service has a distinct,
+**process-wide atomic monotonic 64-bit incarnation**, also embedded in
+its permit. A stale permit from a destroyed service is invalid even after a
+placement-new replacement at the **same address** with the same slot, guest
+generation and PC. Service cannot be copied/moved; if incarnation counter
+reaches UINT64_MAX, next incarnation becomes zero and all subsequent
+instances fail closed forever in that process (no wrap/reuse). This is a
+source-only C++ lifetime barrier, not cross-process cryptographic security. Reset needs
 a trusted issuer's positive quiescence observation.
 
 `nsmbw::w03::Time64PermitIssuer` is a **forward declaration only**.
@@ -68,3 +75,16 @@ provenance unattested; no real W03 ticket-to-Toad bridge, no native HLE,
 no physical timebase/epoch/mftb read/IRQ/MMIO, no fresh emcc build or REA6.5
 gate. Synthetic tests do not establish real Nintendo function execution.
 Mario alone decides ABI and main integration after exact-SHA peer reviews.
+
+## Phase16 peer-review fix: object lifetime ABA RED -> GREEN
+Peach independently found that commit 0801c46f6f45684d4b2545e6ce219dc0dd378cca
+allowed a stale permit from destroyed service A to authorize newly created
+service B at an identical placement-new address with matching guest generation.
+Her exact-SHA formal review CHANGES_REQUESTED is preserved in
+`reviews/2026-10-27T10-02-03-542Z_Peach_to_Toad_e1ed8c81.md`.
+A separate C++ negative fixture now reconstructs that precise scenario:
+old sample/reset/open/advance permits must reject in B, B CPU/ledger remain
+bytewise intact, while B's own newly minted permit succeeds. The RED mutant
+removes ONLY incarnation equality check from ephemeral /tmp C++ source and
+fails; unmodified code passes. The previous owner-pointer-only design MUST
+NOT be integrated even for source-only W03 trust experiments.

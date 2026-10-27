@@ -17,15 +17,15 @@ function compile(tmp, override=false, sourceName=native) {
     '-Werror','-pedantic',...(sourceName===native?['-DNSMB_PHASE16_TIME64_SYNTHETIC_TEST']:[]),...(override?['-I',tmp]:[]),'-I',inc,sourceName,
     '-o',output],{encoding:'utf8',timeout:30000})};
 }
-test('native C++ 59 atomic+epoch checks at -Werror',t=>{
+test('native C++ 69 atomic+epoch checks at -Werror',t=>{
   const dir=mkdtempSync(join(tmpdir(),'nsmb-p16-native-'));
   t.after(()=>rmSync(dir,{recursive:true,force:true}));
   const {output,result}=compile(dir);
   assert.equal(result.status,0,result.stderr);
   const run=spawnSync(output,[],{encoding:'utf8',timeout:10000});
   assert.equal(run.status,0,run.stderr);
-  assert.match(run.stdout,/TOTAL_CHECKS 59\s*$/);
-  assert.equal((run.stdout.match(/^PASS /gm)||[]).length,59);
+  assert.match(run.stdout,/TOTAL_CHECKS 69\s*$/);
+  assert.equal((run.stdout.match(/^PASS /gm)||[]).length,69);
 });
 test('RED -> GREEN: missing generation check is detected by native negative fixture',t=>{
   const dir=mkdtempSync(join(tmpdir(),'nsmb-p16-mutant-'));
@@ -45,7 +45,25 @@ test('RED -> GREEN: missing generation check is detected by native negative fixt
   assert.equal(healthy.result.status,0,healthy.result.stderr);
   const passing=spawnSync(healthy.output,[],{encoding:'utf8',timeout:10000});
   assert.equal(passing.status,0,passing.stderr);
-  assert.match(passing.stdout,/TOTAL_CHECKS 59/);
+  assert.match(passing.stdout,/TOTAL_CHECKS 69/);
+});
+test('RED -> GREEN: removing service incarnation rejects ABA test',t=>{
+  const dir=mkdtempSync(join(tmpdir(),'nsmb-p16-incarnation-'));
+  t.after(()=>rmSync(dir,{recursive:true,force:true}));
+  const original=readFileSync(source,'utf8');
+  const guarded='permit.ownerIncarnation_ != incarnation_';
+  assert.equal(original.split(guarded).length-1,2);
+  writeFileSync(join(dir,'time64_epoch_service.hpp'),original.replace(guarded,'false'));
+  const mutant=compile(dir,true);
+  assert.equal(mutant.result.status,0,mutant.result.stderr);
+  const rejected=spawnSync(mutant.output,[],{encoding:'utf8',timeout:10000});
+  assert.notEqual(rejected.status,0);
+  assert.match(rejected.stderr,/FAIL ABA stale sample denied/);
+  const clean=compile(dir);
+  assert.equal(clean.result.status,0,clean.result.stderr);
+  const pass=spawnSync(clean.output,[],{encoding:'utf8',timeout:10000});
+  assert.equal(pass.status,0,pass.stderr);
+  assert.match(pass.stdout,/TOTAL_CHECKS 69/);
 });
 test('untrusted callers cannot construct or copy capability in normal C++',t=>{
   const dir=mkdtempSync(join(tmpdir(),'nsmb-p16-capability-'));

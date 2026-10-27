@@ -4,6 +4,7 @@
 // The W03 issuer is only DECLARED here: no trusted production implementation exists.
 #include "os_time64_reference.hpp"
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 
@@ -34,6 +35,7 @@ class Time64Permit final {
 #endif
   friend class Time64EpochService;
   Time64EpochService* owner_;
+  uint64_t ownerIncarnation_;
   unsigned slot_;
   uint64_t generation_;
   uint32_t expectedPc_;
@@ -41,14 +43,13 @@ class Time64Permit final {
   bool quiet_;
   bool usable_ = true;
   Time64Permit(Time64EpochService& owner, unsigned slot, uint64_t generation,
-               uint32_t pc, Act act, bool quiet) noexcept
-    : owner_(&owner), slot_(slot), generation_(generation),
-      expectedPc_(pc), act_(act), quiet_(quiet) {}
+               uint32_t pc, Act act, bool quiet) noexcept;
 public:
   Time64Permit(const Time64Permit&) = delete;
   Time64Permit& operator=(const Time64Permit&) = delete;
   Time64Permit(Time64Permit&& rhs) noexcept
-    : owner_(rhs.owner_), slot_(rhs.slot_), generation_(rhs.generation_),
+    : owner_(rhs.owner_), ownerIncarnation_(rhs.ownerIncarnation_),
+      slot_(rhs.slot_), generation_(rhs.generation_),
       expectedPc_(rhs.expectedPc_), act_(rhs.act_), quiet_(rhs.quiet_),
       usable_(rhs.usable_) { rhs.usable_ = false; }
   Time64Permit& operator=(Time64Permit&&) = delete;
@@ -57,6 +58,23 @@ public:
 // Slots own ONLY private CPU copies; W03 never supplies a caller-chosen pointer.
 // No registration of native OSGetTime, no guest memory, MMIO or IRQ effects.
 class Time64EpochService final {
+  friend class Time64Permit;
+  // A process-wide monotonic service incarnation, independent of address.
+  // Atomic CAS permanently latches to 0 on uint64 exhaustion: fail closed,
+  // NEVER issue an identity already used before, including placement-new ABA.
+  static uint64_t allocateIncarnation() noexcept {
+    static std::atomic<uint64_t> next{1};
+    uint64_t candidate = next.load(std::memory_order_relaxed);
+    while (candidate != 0) {
+      const uint64_t successor = candidate == std::numeric_limits<uint64_t>::max()
+        ? 0 : candidate + 1;
+      if (next.compare_exchange_weak(candidate, successor,
+            std::memory_order_relaxed, std::memory_order_relaxed))
+        return candidate;
+    }
+    return 0;
+  }
+  const uint64_t incarnation_ = allocateIncarnation();
   struct Slot {
     CpuContext cpu{};
     uint64_t timebase = 0;
@@ -69,7 +87,8 @@ class Time64EpochService final {
   Outcome validate(Time64Permit& permit, Act action) noexcept {
     if (!permit.usable_) return {Error::untrusted};
     permit.usable_ = false; // ANY attempt consumes even on failure
-    if (permit.owner_ != this) return {Error::untrusted};
+    if (incarnation_ == 0 || permit.owner_ != this ||
+        permit.ownerIncarnation_ != incarnation_) return {Error::untrusted};
     if (permit.act_ != action) return {Error::wrongAction};
     if (permit.slot_ >= slots_.size()) return {Error::badSlot};
     return {Error::ok};
@@ -82,6 +101,12 @@ class Time64EpochService final {
     return {Error::ok};
   }
 public:
+  Time64EpochService() noexcept = default;
+  Time64EpochService(const Time64EpochService&) = delete;
+  Time64EpochService& operator=(const Time64EpochService&) = delete;
+  Time64EpochService(Time64EpochService&&) = delete;
+  Time64EpochService& operator=(Time64EpochService&&) = delete;
+
   Outcome open(Time64Permit&& permit, const CpuContext& seed) noexcept {
     const auto status = validate(permit, Act::open);
     if (!status.committed()) return status;
@@ -126,7 +151,9 @@ public:
                   Operation operation = Operation::registersOnly) noexcept {
     // Advance checks overflow without mutating anything; publish checks
     // generation/PC/operation. Never dereference a forged/invalid slot.
-    if (!permit.usable_ || permit.owner_ != this || permit.act_ != Act::sample ||
+    if (!permit.usable_ || permit.owner_ != this ||
+        incarnation_ == 0 || permit.ownerIncarnation_ != incarnation_ ||
+        permit.act_ != Act::sample ||
         permit.slot_ >= slots_.size()) return publish(static_cast<Time64Permit&&>(permit), 0, operation);
     const Slot& slot = slots_[permit.slot_];
     if (slot.active && slot.generation == permit.generation_ &&
@@ -164,4 +191,9 @@ public:
     return true;
   }
 };
+inline Time64Permit::Time64Permit(Time64EpochService& owner, unsigned slot,
+                                  uint64_t generation, uint32_t pc,
+                                  Act act, bool quiet) noexcept
+  : owner_(&owner), ownerIncarnation_(owner.incarnation_), slot_(slot),
+    generation_(generation), expectedPc_(pc), act_(act), quiet_(quiet) {}
 } // namespace nsmbw::w16
