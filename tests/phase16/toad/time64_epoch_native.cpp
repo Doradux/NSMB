@@ -107,5 +107,30 @@ int main() {
   check(nanoseconds_to_ticks(std::numeric_limits<uint64_t>::max())==
         (std::numeric_limits<uint64_t>::max()/4000)*243+
         ((std::numeric_limits<uint64_t>::max()%4000)*243)/4000,"max ns exact conversion");
+  // Deterministic native fuzz: exact r3/r4 reconstruction, strict
+  // monotonicity and isolation across 512 sample advances.
+  Time64EpochService fuzzer;
+  check(fuzzer.open(Time64PermitIssuer::make(fuzzer,0,123,cpu.pc,Act::open,false),cpu).committed(),
+        "native fuzz guest opened");
+  check(fuzzer.open(Time64PermitIssuer::make(fuzzer,1,987,cpu.pc,Act::open,false),cpu).committed(),
+        "native fuzz independent guest opened");
+  uint64_t next=0, random=0x8d09c671ULL;
+  bool allGood=true;
+  for (unsigned i=0;i<512;++i) {
+    random=(random*1664525ULL+1013904223ULL)&0xffffffffULL;
+    const uint64_t delta=random+1;
+    next+=delta;
+    const auto result=fuzzer.advance(Time64PermitIssuer::make(fuzzer,0,123,cpu.pc,Act::sample,false),delta);
+    CpuContext current{}; uint64_t stored=0,generation=0;
+    if (!result.committed() || !fuzzer.snapshot(0,current,stored,generation) ||
+        stored!=next || generation!=123 || current.pc!=cpu.pc || current.lr!=cpu.lr ||
+        ((static_cast<uint64_t>(current.gpr[3])<<32)|current.gpr[4])!=next) {
+      allGood=false;
+      break;
+    }
+  }
+  check(allGood,"512 seeded native exact samples & PC/LR invariant");
+  check(fuzzer.snapshot(1,after,ticks,gen)&&ticks==0&&gen==987&&same(after,cpu),
+        "fuzz never changes unrelated guest");
   std::cout << "TOTAL_CHECKS " << checks << "\n";
 }
