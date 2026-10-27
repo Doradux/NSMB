@@ -173,6 +173,16 @@ class VersionedSyntheticEvidence(unittest.TestCase):
                 data=encode(obj);m=dict(self.manifest);m["metadataSha256"]=digest(data)
                 self.deny('unsafe or missing output',manifest=m,metadata=data)
 
+    def test_forged_control_and_unicode_format_output_paths_denied(self):
+        for path in ("safe\x00output.cpp","safe\noutput.cpp","safe\x1b[31m.cpp",
+                     "safe\u202eppc.cpp","C:evade.cpp","name:stream.cpp",
+                     "hidden\u2028file.cpp","dir/file\t.cpp"):
+            with self.subTest(repr=repr(path)):
+                obj=json.loads(self.metadata)
+                obj["functions"][0]["relativePath"]=path
+                data=encode(obj);m=dict(self.manifest);m["metadataSha256"]=digest(data)
+                self.deny("unsafe or missing output",manifest=m,metadata=data)
+
     def test_duplicate_json_key_after_unicode_decoding_denied(self):
         original=b'"root":2147500032'
         self.assertIn(original,encode(self.manifest))

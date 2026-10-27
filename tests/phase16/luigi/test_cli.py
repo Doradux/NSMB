@@ -26,7 +26,6 @@ class SidecarCliFailClosed(unittest.TestCase):
             self.assertEqual(create.returncode,3,create.stderr)
             self.assertIn("INVENTED_FIXTURE_ONLY",create.stdout)
             args=("check","--sidecar",d/"sidecar.json","--metadata",d/"metadata.json",
-                        "--map-file",d/"invented.map","--config-file",d/"invented.config",
                   "--map-file",d/"invented.map","--config-file",d/"invented.config",
                   "--external-anchors",d/"example-anchors-NOT-TRUSTED.json")
             checked=self.call(*args)

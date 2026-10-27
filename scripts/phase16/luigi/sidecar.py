@@ -5,6 +5,7 @@ from hashlib import sha256
 from pathlib import Path
 import re
 import sys
+import unicodedata
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from strict_translation_metadata import load_translation_json, parse_translation_metadata, quality_clean, strict_uint32
 
@@ -207,7 +208,11 @@ def verify(sidecar_bytes: bytes, metadata_bytes: bytes, anchors: TrustedAnchors,
             raise ValueError("missing function output digest and path")
         h=check_sha(row["sha256"],"output digest")
         path=row["relativePath"]
-        if type(path) is not str or not path or path.startswith("/") or "\\" in path or any(x in ("",".","..") for x in path.split("/")):
+        if (type(path) is not str or not path or path.startswith("/")
+                or "\\" in path or any(c in path for c in '<>:"|?*')
+                or any(unicodedata.category(c) in ("Cc","Cf","Cs","Zl","Zp") for c in path)
+                or any(segment in ("",".","..") or segment.endswith((" ","."))
+                       for segment in path.split("/"))):
             raise ValueError("unsafe or missing output path")
         if path.casefold() in paths:
             raise ValueError("output path collision")
