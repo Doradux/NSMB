@@ -49,6 +49,16 @@ try{
  ensure(status.written&&status.low32===0&&status.rolledOver,'32BIT_WRAP');
  ensure((m._nsmbw_mem_read32(0xC0008000)>>>0)===0,'GUEST_ALIAS');
  clock.advance(61n);
+ // ACTUAL C++ CpuContext* ABI: high word r3, low word r4, not JS-only values.
+ for(let i=0;i<3;i++){
+   const sample=(BigInt(i+1)<<32n)|61n;
+   const cpu=clock.publishCpu(i,sample);
+   ensure(cpu.written&&cpu.reg3===i+1&&cpu.reg4===61,'TIME64_GUEST_GPR_'+i);
+   ensure(m._nsmbw_services_time64_gpr(i,3)===i+1 &&
+     m._nsmbw_services_time64_gpr(i,4)===61,'TIME64_NATIVE_PAIR_'+i);
+ }
+ ensure(m._nsmbw_services_time64_context_bytes()===m._nsmbw_loop_cpu_abi_layout(0),
+   'TIME64_ACTUAL_CPUCONTEXT_LAYOUT');
  for(let i=0;i<3;i++)
   ensure(m._nsmbw_loop_cpu_spawn(i+1,0x80010000,0x80005010+i*0x1000,
     0xC0008000,0x80009000+i*0x1000,i)===1,'CPU_SPAWN');
@@ -68,7 +78,8 @@ try{
  const began=performance.now();
  for(let i=0;i<128;i++){
   m._nsmbw_loop_reset();clock.reset();
-  ensure(clock.publish(BigInt(i)).written,'FRAME_TICK');
+  const abi=clock.publishCpu(i%3,BigInt(i));
+  ensure(abi.written&&abi.reg3===0&&abi.reg4===i,'FRAME_TIME64_ABI');
   ensure(m._nsmbw_loop_cpu_spawn(1,0x80010000,0x80005010,
     0x80008000,0x80009000,1)===1,'FRAME_SPAWN');
   ensure(m._nsmbw_loop_frame(11)===11,'FRAME_DISPATCH');
@@ -77,6 +88,6 @@ try{
  }
  const elapsed=performance.now()-began;
  out.dataset.state='pass';
- out.textContent='PASS: actual single C++/Wasm W03 CPU reads checked synthetic tick from W04 RAM; 32bit rollover, 3 contexts, quota0, 128 resets and 3-page cap; '+elapsed.toFixed(2)+'ms';
+ out.textContent='PASS: actual single C++/Wasm W03 CPU reads checked synthetic tick from W04 RAM; Phase9 64-bit CpuContext r3:r4, rollover, 3 contexts, quota0, 128 resets and 3-page cap; '+elapsed.toFixed(2)+'ms';
 }catch(e){out.dataset.state='fail';out.textContent='FAIL: '+(e?.message||String(e));console.error(e);}
 </script></body></html>
