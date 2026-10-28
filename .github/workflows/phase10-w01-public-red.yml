@@ -1,0 +1,46 @@
+# Phase10: independent public W01 auditor RED oracle.
+# Uses synthetic JSON only; checks exact published auditor 110697c.
+# Expected RED means missing checks remain BLOCKERS, not acceptable W01.
+name: "Phase10 W01 public REL negative oracle"
+on:
+  push:
+    branches:
+      - agent/toad/phase10-rel-structural-gates
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-public-auditor-negative-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: suite
+
+      - name: Checkout exact published W01 baseline (never dirty staging)
+        uses: actions/checkout@v4
+        with:
+          ref: 110697c105ee1550f424ae05cf677153fba01348
+          path: auditor
+
+      - name: Execute new synthetic REL structural tests against REAL auditor code
+        shell: bash
+        run: |
+          mkdir -p auditor/tests/phase10
+          cp suite/tests/phase10/test_w01_rel_structure.py auditor/tests/phase10/
+          cd auditor
+          set +e
+          python3 -B -m unittest discover -s tests/phase10 -p 'test_w01_rel_structure.py' -v > "$RUNNER_TEMP/w01-red.txt" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/w01-red.txt"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Unexpected baseline GREEN: re-check source SHA and gate test assertions"
+            exit 1
+          fi
+          grep -q 'Ran 6 tests' "$RUNNER_TEMP/w01-red.txt"
+          grep -q 'FAILED (errors=4)' "$RUNNER_TEMP/w01-red.txt"
+          echo "::notice::Confirmed 2 positive PASS / 4 invalid-schema ERROR on public W01 110697c; overlaps are independently owned by Peach PR2. Do NOT approve W01."
