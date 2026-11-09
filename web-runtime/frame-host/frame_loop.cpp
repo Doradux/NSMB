@@ -4,6 +4,7 @@
 #include <cstdint>
 #include "guest_cpu.hpp"
 #include "trusted_cpu_service.hpp"
+#include "scheduler_clock.hpp"
 #if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE) || defined(NSMB_PHASE6_TRANSLATED_STORE_FIXTURE)
 extern "C" void func_80001000(CpuContext* ctx);
 #endif
@@ -38,6 +39,13 @@ struct Context {
   SyntheticCpu::State cpu{};
   // Private W16 native-only service authority. Never marshalled into JS.
   uint64_t serviceOwner=0, outstandingService=0;
+  // PHASE17: a W03-owned synthetic clock event, not an OSGetTime HLE.
+  // The only ledger here is LOCAL to this synthetic W03 guest. Toad owns
+  // its separate Time64 ledger and must be integrated by separate review.
+  bool clockPending=false, clockCommitted=false;
+  uint32_t clockExpectedPc=0;
+  uint64_t clockEpoch=0, clockOwner=0, clockCandidate=0, clockTicks=0;
+  nsmbw::trusted_cpu::ClockOutcome clockLast=nsmbw::trusted_cpu::ClockOutcome::none;
 };
 std::array<Context,CAPACITY> tasks{};
 std::array<uint32_t,TRACE_SIZE> trace{};
@@ -117,8 +125,9 @@ uint32_t count(uint32_t state) {
 namespace nsmbw::trusted_cpu {
 Ticket leaseSynthetic(uint32_t guest) noexcept {
   auto* t=find(guest);
-  if(!t || t->kind!=1 || t->state!=READY || dispatching ||
-     serviceExecuting || serviceExhausted || !t->serviceOwner)return {};
+  if(!t || t->kind!=1 || t->state!=READY || t->clockPending ||
+     dispatching || serviceExecuting || serviceExhausted ||
+     !t->serviceOwner)return {};
   const uint64_t serial=nextServiceSerial();
   if(!serial)return {};
   t->outstandingService=serial; // all previous tickets now invalid
@@ -153,6 +162,42 @@ Status publishSyntheticPair(Ticket& ticket,uint32_t expectedPc,
   t->cpu.gpr[4]=static_cast<uint32_t>(ticks);
   serviceExecuting=false;
   return Status::ok;
+}
+// W17 arm: trusted native host PREPARE only. It cannot move registers or
+// commit the synthetic clock ledger; the actual W03 tick owns COMMIT.
+ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
+                          uint64_t proposedTicks) noexcept {
+  const uint64_t offered=ticket.serial_;
+  ticket.serial_ = 0u; // all attempts consume the caller's private lease
+  const bool busy=dispatching || serviceExecuting;
+  if(!ticket.guest_ || !offered)
+    return busy?ClockArm::dispatchBusy:ClockArm::invalidTicket;
+  auto* t=find(ticket.guest_);
+  const bool authorized=t && !serviceExhausted &&
+    ticket.epoch_==serviceEpoch && t->serviceOwner==ticket.owner_ &&
+    t->serviceOwner!=0 && t->outstandingService==offered;
+  if (authorized) { t->outstandingService = 0u; } // retire copied leases
+  if(busy)return ClockArm::dispatchBusy;
+  if(!authorized)return ClockArm::stale;
+  if(t->state!=READY || t->kind!=1)return ClockArm::notReady;
+  if(t->clockPending)return ClockArm::alreadyPending;
+  if(t->cpu.pc!=expectedPc)return ClockArm::wrongPc;
+  // Deliberately small allowlist: only a declared synthetic instruction PC.
+  // Arbitrary translated HLE addresses and Wii-native overrides are forbidden.
+  if(expectedPc!=SyntheticCpu::Entry)return ClockArm::unsupportedPc;
+  if(t->clockCommitted && proposedTicks<t->clockTicks)
+    return ClockArm::regression;
+  t->clockPending=true;
+  t->clockEpoch=serviceEpoch;
+  t->clockOwner=t->serviceOwner;
+  t->clockExpectedPc=expectedPc;
+  t->clockCandidate=proposedTicks;
+  return ClockArm::accepted;
+}
+ClockSnapshot inspectSyntheticClock(uint32_t guest) noexcept {
+  const auto* t=find(guest);
+  if(!t)return {};
+  return {true,t->clockCommitted,t->clockPending,t->clockTicks,t->clockLast};
 }
 #ifdef NSMB_PHASE16_TRUSTED_CPU_TEST
 Ticket forgeForNativeTest(uint32_t guest,uint64_t epoch,
@@ -328,6 +373,10 @@ int EXPORT nsmbw_loop_suspend(uint32_t id) {
   lastError=0;auto* t=find(id);
   if(!t||t->state!=READY){lastError=3;return 0;}
   t->outstandingService=0;
+  if(t->clockPending) {
+    t->clockPending=false;
+    t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
+  }
   t->state=PAUSED;return 1;
 }
 int EXPORT nsmbw_loop_resume(uint32_t id) {
@@ -341,6 +390,10 @@ int EXPORT nsmbw_loop_cancel(uint32_t id) {
   lastError=0;auto* t=find(id);
   if(!t||t->state==DONE||t->state==CANCELLED){lastError=3;return 0;}
   t->outstandingService=0;
+  if(t->clockPending) {
+    t->clockPending=false;
+    t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
+  }
   t->state=CANCELLED;return 1;
 }
 // Explicit cleanup: running/paused contexts cannot be destroyed behind a host frame.
@@ -377,6 +430,41 @@ int EXPORT nsmbw_loop_tick() {
     // A scheduled step invalidates outstanding host-issued service tickets.
     t.outstandingService=0;
     cursor=(index+1)%CAPACITY;
+    if(t.clockPending) {
+      // This branch is executable ONLY by W03's own scheduler, never by a
+      // device callback or guest-supplied pointer. All validation happens
+      // before any side effect. No JS interface or external service invoked.
+      const uint64_t ticks=t.clockCandidate;
+      const uint32_t expected=t.clockExpectedPc;
+      const uint64_t owner=t.clockOwner,epoch=t.clockEpoch;
+      t.clockPending=false; // one dispatch consumes one prepared command
+      if(t.kind!=1 || t.serviceOwner!=owner || !owner ||
+         epoch!=serviceEpoch || serviceExhausted) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedStale;
+        return static_cast<int>(t.id);
+      }
+      if(t.cpu.pc!=expected || expected!=SyntheticCpu::Entry) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedPc;
+        return static_cast<int>(t.id);
+      }
+      if(t.clockCommitted && ticks<t.clockTicks) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedRegression;
+        return static_cast<int>(t.id);
+      }
+      serviceExecuting=true;
+      // This is a single-threaded, non-reentrant LOCAL native transaction:
+      // there are NO callbacks, allocations or fallible operations between
+      // GPR3/GPR4 and W03's local clock ledger commit. No Toad ledger yet.
+      t.cpu.gpr[3]=static_cast<uint32_t>(ticks>>32u);
+      t.cpu.gpr[4]=static_cast<uint32_t>(ticks);
+      t.clockTicks=ticks;
+      t.clockCommitted=true;
+      t.clockLast=nsmbw::trusted_cpu::ClockOutcome::committed;
+      serviceExecuting=false;
+      ++t.yields; // synthetic event, not a guest PPC instruction or step
+      appendTrace((t.id<<16u)|0x4000u|(t.pc&0x3FFFu));
+      return static_cast<int>(t.id);
+    }
 #ifdef NSMB_PHASE6_TRANSLATED_STORE_FIXTURE
     if(t.kind==3) {
       CpuContext candidate=static_cast<const CpuContext&>(t.cpu);

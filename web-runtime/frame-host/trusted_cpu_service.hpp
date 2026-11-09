@@ -5,6 +5,8 @@
 // Never expose Ticket or CpuContext* to JavaScript, nor mint one from JS input.
 #include <cstdint>
 namespace nsmbw::trusted_cpu {
+// W17 native-only scheduler service forward type; no C/JS export.
+enum class ClockArm : uint32_t;
 enum class Status : uint32_t {
   ok=0, invalidTicket=1, stale=2, notReady=3,
   pcMismatch=4, executing=5, unsupported=6
@@ -17,6 +19,7 @@ class Ticket final {
     : guest_(guest), epoch_(epoch), owner_(owner), serial_(serial) {}
   friend Ticket leaseSynthetic(uint32_t) noexcept;
   friend Status publishSyntheticPair(Ticket&,uint32_t,uint64_t) noexcept;
+  friend ClockArm armSyntheticClock(Ticket&,uint32_t,uint64_t) noexcept;
 #ifdef NSMB_PHASE16_TRUSTED_CPU_TEST
   friend Ticket forgeForNativeTest(uint32_t,uint64_t,uint64_t,uint64_t) noexcept;
 #endif
