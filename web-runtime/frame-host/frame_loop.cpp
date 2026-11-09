@@ -227,6 +227,47 @@ ClockSnapshot inspectSyntheticClock(uint32_t guest) noexcept {
   return {true,t->clockCommitted,t->clockPending,t->clockTicks,t->clockLast,
           t->clockRevision,serviceEpoch};
 }
+#ifdef NSMB_PHASE18_CLOCK_TEST
+ClockNativeTestSnapshot clockNativeTestSnapshot(uint32_t guest) noexcept {
+  const auto* t=find(guest);
+  if(!t || t->kind!=1)return {};
+  ClockNativeTestSnapshot result{};
+  result.valid=true;
+  result.cpu=static_cast<const CpuContext&>(t->cpu);
+  result.clock=inspectSyntheticClock(guest);
+  result.trace=trace;
+  result.traceLength=traceCount;
+  result.traceDropped=traceDropped;
+  result.state=t->state;
+  result.error=t->error;
+  return result;
+}
+bool clockNativeTestSetRevision(uint32_t guest,uint64_t revision) noexcept {
+  auto* t=find(guest);
+  if(!t || t->kind!=1 || dispatching || serviceExecuting)return false;
+  t->clockRevision=revision;
+  return true;
+}
+bool clockNativeTestSetExpectedRevision(uint32_t guest,uint64_t revision) noexcept {
+  auto* t=find(guest);
+  if(!t || t->kind!=1 || !t->clockPending || dispatching || serviceExecuting)
+    return false;
+  t->clockExpectedRevision=revision;
+  return true;
+}
+bool clockNativeTestSetExpectedPc(uint32_t guest,uint32_t expectedPc) noexcept {
+  auto* t=find(guest);
+  if(!t || t->kind!=1 || !t->clockPending || dispatching || serviceExecuting)
+    return false;
+  t->clockExpectedPc=expectedPc;
+  return true;
+}
+bool clockNativeTestExhaustSerial() noexcept {
+  if(dispatching || serviceExecuting || serviceExhausted)return false;
+  serviceSerial=UINT64_MAX;
+  return true;
+}
+#endif
 #ifdef NSMB_PHASE16_TRUSTED_CPU_TEST
 Ticket forgeForNativeTest(uint32_t guest,uint64_t epoch,
                           uint64_t owner,uint64_t serial) noexcept {

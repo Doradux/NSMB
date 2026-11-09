@@ -48,3 +48,71 @@ The two sources start on separate Phase18 branches. Cross-branch E2E must use SH
 A synchronous, single-threaded native W03 block is transactionally non-reentrant only under W03's current execution model. Real multithreading, Wii interrupts, original HLE dispatch, GX/IOS/VI, real game execution, authenticated original DOL checksum, actual C# producer instrumentation and fresh Emscripten/recompiled Phase18 Wasm remain separate STOPs.
 
 The existing `dist/frame_loop.wasm` cannot contain these new W03 sources; a precompiled Chromium PASS is background regression, never a claim of Phase18 Wasm or Wii execution. The optional builder must be run only with authorized, pinned em++/REA and external clean output, and a fresh browser test must load the **exact** newly hashed product before declaring Wasm functionality.
+
+## Phase18 H5–H8 evidence: pure Time64 source and complete-state RED tests
+
+The optional header-only `web-runtime/frame-host/time64_clock_bridge.hpp`
+provides **two** native adapters only if their matching Toad headers are
+actually present in the C++ compile's include search paths:
+
+- `armPureTime64Clock(Ticket&, pc, nsmbw::w18::Candidate, sourceEpoch, sourceRevision)` maps the minimal numeric `ticks/high32()/low32()` candidate.
+- `armCheckedTime64Clock(Ticket&, pc, nsmbw::time64_pure::ClockCandidate)` maps the richer pure `rawTicks/high32/low32/sourceEpoch/sourceRevision` candidate.
+
+Both call **the exact same** `armCanonicalClock` admission and existing
+W03 scheduler dispatch. They do not call `TransactionService.open/commit`,
+never update any second ledger or private CPU copy, and make no C/JS export.
+An absent peer header causes **no adapter to be available at compile-time**;
+there is NO fabricated-fallback candidate. The candidate itself is plain
+forgeable data, never a ticket: W03's private Ticket/epoch/owner/serial is
+still required. A failed Toad numeric calculation must be checked via
+`Result.ok()` before requesting a W03 lease; W03 independently checks
+source version and arithmetic split even when a caller misbehaves.
+
+`tests/phase18/peach/pure_time64_w03_e2e.test.mjs` extracts the EXACT Toad
+headers from a pinned public commit into a temporary read-only overlay,
+then compiles both their numeric code and the ACTUAL current W03/W04/W07
+sources with g++ `-Werror` and runs the real synthetic CPU service through
+W03 tick. The test checks exact 60.75MHz integer conversion, signed and
+uint64 overflow, r3/r4 32-bit carry, no intermediate guest RAM/clock writes,
+W03 canonical revision and clock changes together, and denial of both
+stale reference versions and malformed high/low fields. **It does not
+modify or cherry-pick Toad's worktree**; pin gets updated to reviewed exact
+SHA when Toad final changes. The early source pin was
+`803683b497e6c2ea79fc2ef340a89b7192eea612`, then the richer two-header
+pin `a6e7343c722648b2b705e7d887dbac9d934d2e7b`.
+
+`tests/phase18/peach/canonical_clock_adversarial.cpp` compiles real W03
+with `-DNSMB_PHASE18_CLOCK_TEST` to access **test-only** by-value
+`ClockNativeTestSnapshot` (full actual `CpuContext` including all
+GPR/FPR/GQR, PC/LR/SP, trace ring, clockTicks+revision and guest status).
+It compares COMPLETE state before and after denied arms, seeds real W04
+checked RAM, injects a stale version or PC into a pending service to prove
+revalidation inside the real scheduler, exercises UINT64_MAX ticks and a
+revision overflow, and runs **4096 deterministic dual-guest action cases**
+with a fixed LCG seed `0x0BADC0DE`. It closes by injecting a test-only
+service-serial exhaustion and proving fail-closed. These helpers are inside
+`#ifdef NSMB_PHASE18_CLOCK_TEST`, and production `nm` checks verify they
+are absent without that macro; no test debug CPU pointer is exposed to JS.
+
+`tests/phase18/peach/canonical_clock_mutation.test.mjs` uses eight
+source-only throwaway compile mutants under `/tmp` and proves the live
+native test detects deletion of (1) source epoch, (2) canonical revision,
+(3) high/low pair validation, (4) revision increment at COMMIT,
+(5) in-tick revision validation, (6) in-tick PC validation,
+(7) revision overflow latch, and (8) copied Ticket retirement.
+Every mutated binary MUST compile under `-Werror` and fail a specifically
+identified oracle with exit2; the healthy source passes. These 8 controls
+are Node **methods**, not eight successes in the mutated C++ executables.
+
+`tests/phase18/peach/canonical_clock_native_abi.test.mjs` ensures the
+normal C++ build exports only mangled native methods, not a C/JS issuer,
+raw CpuContext pointer or test-only corruption hooks. It verifies a forged
+private `Ticket` does NOT compile. The optional-Toda-source test is
+compatibility-aware: no header in a standalone Peach worktree means
+**compile-time denial**, but once Mario merges the reviewed Toad source,
+the actual header must allow compilation; never a stub claiming success.
+
+All tests are purely synthetic native source tests, not generated Nintendo
+code. The old precompiled Wasm and an old Chrome PASS do not prove any
+Phase18 code was compiled or executed in a browser. The preview base itself
+remains NOT main until Mario's integration.

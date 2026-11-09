@@ -5,6 +5,10 @@
 // No extern "C", no EMSCRIPTEN_KEEPALIVE and NO JS-accessible CpuContext*.
 #include <cstdint>
 #include "trusted_cpu_service.hpp"
+#ifdef NSMB_PHASE18_CLOCK_TEST
+#include "guest_cpu.hpp"
+#include <array>
+#endif
 
 namespace nsmbw::trusted_cpu {
 enum class ClockArm : uint32_t {
@@ -52,4 +56,21 @@ ClockArm armCanonicalClock(Ticket& ticket, uint32_t expectedPc,
 // Read-only native diagnostics; never an exported JS or guest-facing ABI.
 // Returned by VALUE, never a CpuContext pointer.
 ClockSnapshot inspectSyntheticClock(uint32_t guest) noexcept;
+#ifdef NSMB_PHASE18_CLOCK_TEST
+// Native TEST-ONLY oracle. It cannot exist in production builds, Wasm or JS.
+// Full CpuContext and W03 trace are returned as COPIES (no raw CPU pointer).
+struct ClockNativeTestSnapshot final {
+  bool valid=false;
+  CpuContext cpu{};
+  ClockSnapshot clock{};
+  std::array<uint32_t,256> trace{};
+  uint32_t traceLength=0,traceDropped=0;
+  uint32_t state=0,error=0;
+};
+ClockNativeTestSnapshot clockNativeTestSnapshot(uint32_t guest) noexcept;
+bool clockNativeTestSetRevision(uint32_t guest,uint64_t revision) noexcept;
+bool clockNativeTestSetExpectedRevision(uint32_t guest,uint64_t revision) noexcept;
+bool clockNativeTestSetExpectedPc(uint32_t guest,uint32_t expectedPc) noexcept;
+bool clockNativeTestExhaustSerial() noexcept;
+#endif
 }
