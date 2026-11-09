@@ -13,6 +13,7 @@ from scripts.phase16.luigi.fixtures import encode
 from scripts.phase16.luigi.sidecar import TrustedAnchors
 from .producer import produce_demo
 from .replay import replay
+from .origin_v2 import generate_v2, verify_v2, OriginV2
 
 MAX_FILE=2_000_000
 
@@ -25,12 +26,47 @@ def read_file(p:Path)->bytes:
 def main(argv=None)->int:
     parser=argparse.ArgumentParser(description=__doc__)
     options=parser.add_subparsers(dest='mode',required=True)
-    for name in ('generate-demo','check-demo'):
+    for name in ('generate-demo','check-demo','generate-origin-v2','check-origin-v2'):
         action=options.add_parser(name)
         action.add_argument('--directory',required=True)
     args=parser.parse_args(argv)
     folder=Path(args.directory)
     try:
+        if args.mode=='generate-origin-v2':
+            folder.mkdir(parents=True,exist_ok=False)
+            from .producer import make_invented_source, invented_map, invented_config
+            produced=generate_v2(make_invented_source(),invented_map(),invented_config())
+            for name,body in {'source.dol':produced.source,
+                              'inputs.map':produced.map_bytes,
+                              'config.json':produced.config,
+                              'origin-v2.json':produced.trace,
+                              'metadata-v2.json':produced.metadata}.items():
+                (folder/name).write_bytes(body)
+            output=folder/'outputs-v2'
+            output.mkdir()
+            for name,body in produced.outputs.items():
+                (output/name).write_bytes(body)
+            print('INVENTED_V2_DEFERRED_EMISSION_ONLY; no trusted C# observer; STOP')
+            return 3
+        if args.mode=='check-origin-v2':
+            source=read_file(folder/'source.dol')
+            map_bytes=read_file(folder/'inputs.map')
+            config=read_file(folder/'config.json')
+            trace=read_file(folder/'origin-v2.json')
+            metadata=read_file(folder/'metadata-v2.json')
+            # Expected inventory derived from actually replayed invented PPC.
+            expected=generate_v2(source,map_bytes,config)
+            output=folder/'outputs-v2'
+            if not output.is_dir() or output.is_symlink():
+                raise ValueError('missing output directory')
+            if {p.name for p in output.iterdir()}!=set(expected.outputs):
+                raise ValueError('invented output inventory mismatch')
+            outputs={name:read_file(output/name) for name in expected.outputs}
+            count=verify_v2(OriginV2(source,map_bytes,config,trace,metadata,outputs))
+            print(json.dumps({'status':'TOY_V2_REPLAY_ONLY_STOP','eventCount':count,
+                              'producerAttested':False,
+                              'authenticReleaseEligible':False},sort_keys=True))
+            return 3
         if args.mode=='generate-demo':
             # Exclusive new directory: never overwrite real input/user files.
             folder.mkdir(parents=True,exist_ok=False)

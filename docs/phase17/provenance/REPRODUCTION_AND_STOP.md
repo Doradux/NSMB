@@ -53,3 +53,12 @@ combined QA and exact review votes. `main`, pinned upstream and the W01
 strict audit are off limits for Luigi. Any true version-2 C# patch needs
 trusted-source input verification, independent observer/signature design,
 an approved .NET toolchain and a separate review before use.
+
+## Deferred-origin v2 experiment (invented source only)
+
+The additive v2 toy separates translation_committed/target_discovered
+from a final output_emitted wave in the same broad ordering as public C#.
+Use generate-origin-v2 and check-origin-v2 commands documented in
+docs/phase17/provenance/DEFERRED_V2_TOY_CONTRACT.md. Both return exit3
+STOP, tampered events/source/outputs return exit4. No new Nintendo data
+or authentic producer attestation is involved.
