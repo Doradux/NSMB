@@ -144,3 +144,65 @@ test('source-only time64 transaction has no W03 production bridge or JS raw CPU'
  const frameHost=readFileSync(join(root,'web-runtime/frame-host/frame_loop.cpp'),'utf8');
  assert.doesNotMatch(frameHost,/time64_transaction\.hpp|Time64TransactionIssuer|w17::TransactionService/);
 });
+test('cross-translation-unit placement-new ABA cannot reuse prepared token or authority',t=>{
+ const dir=tempFolder(t,'cross-tu');
+ writeFileSync(join(dir,'factoryA.cpp'),`#include "time64_transaction.hpp"
+#include <new>
+extern "C" nsmbw::w17::TransactionService* factoryA(void* p) {
+ return new(p) nsmbw::w17::TransactionService{};
+}`);
+ writeFileSync(join(dir,'factoryB.cpp'),`#include "time64_transaction.hpp"
+#include <new>
+extern "C" nsmbw::w17::TransactionService* factoryB(void* p) {
+ return new(p) nsmbw::w17::TransactionService{};
+}`);
+ writeFileSync(join(dir,'driver.cpp'),`#include "time64_transaction.hpp"
+#include <new>
+#include <utility>
+#include <cstdio>
+extern "C" nsmbw::w17::TransactionService* factoryA(void*);
+extern "C" nsmbw::w17::TransactionService* factoryB(void*);
+namespace nsmbw::w03 {
+class Time64TransactionIssuer {
+ public:static nsmbw::w17::Authority make(nsmbw::w17::TransactionService& s,
+   nsmbw::w17::Action a) {
+  return nsmbw::w17::Authority(s,0,1,0x80004100,a,
+                               nsmbw::w17::Phase::quiescent);
+ }
+};
+}
+int main(){
+ using namespace nsmbw::w17;
+ using nsmbw::w03::Time64TransactionIssuer;
+ alignas(TransactionService) unsigned char buffer[sizeof(TransactionService)]{};
+ CpuContext seed{};seed.pc=0x80004100;
+ auto* a=factoryA(buffer);
+ if(a->open(Time64TransactionIssuer::make(*a,Action::open),seed)!=Error::ok)return 6;
+ auto candidate=a->prepareTicks(0,1,seed.pc,100);
+ auto oldAuthority=Time64TransactionIssuer::make(*a,Action::commit);
+ a->~TransactionService();
+ auto* b=factoryB(buffer);
+ if(a!=b || b->open(Time64TransactionIssuer::make(*b,Action::open),seed)!=Error::ok)return 7;
+ const bool staleCandidate=b->commit(std::move(*candidate.candidate),
+                Time64TransactionIssuer::make(*b,Action::commit))==Error::untrusted;
+ auto next=b->prepareTicks(0,1,seed.pc,101);
+ const bool staleIssuer=b->commit(std::move(*next.candidate),
+                  std::move(oldAuthority))==Error::untrusted;
+ CpuContext cpu{};uint64_t ticks=0,gen=0,version=0;
+ const bool unchanged=b->snapshot(0,cpu,ticks,gen,version)&&ticks==0&&
+   version==0&&cpu.gpr[3]==0&&cpu.gpr[4]==0;
+ b->~TransactionService();
+ if(!(staleCandidate&&staleIssuer&&unchanged))return 8;
+ std::puts("CROSS_TU_ABA_DENIED");return 0;
+}
+`);
+ const binary=join(dir,'cross-tu');
+ const comp=spawnSync('g++',['-std=c++17','-O2','-Wall','-Wextra',
+   '-Werror','-pedantic','-DNSMB_PHASE17_TIME64_SYNTHETIC_TEST',
+   '-I',include,join(dir,'factoryA.cpp'),join(dir,'factoryB.cpp'),
+   join(dir,'driver.cpp'),'-o',binary],{encoding:'utf8',timeout:30000});
+ assert.equal(comp.status,0,comp.stderr);
+ const result=run(binary);
+ assert.equal(result.status,0,result.stderr);
+ assert.match(result.stdout,/CROSS_TU_ABA_DENIED/);
+});

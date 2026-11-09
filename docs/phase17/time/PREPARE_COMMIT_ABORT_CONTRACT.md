@@ -104,6 +104,12 @@ native assertions**, plus 512 deterministic complete transactions.
 Other Node cases run four **RED** mutant copies of the temporary header:
 remove incarnation, remove clock ledger write, permit device fault,
 remove candidate revision guard. Each mutant fails; clean source GREEN.
+An additional independent 3-translation-unit C++ test constructs owner A
+in a fixed aligned buffer in TU A, retains its candidate and scheduler
+permit, destroys A, and placement-news owner B in the **same address**
+from TU B. Both A permits reject; B's registers and clock remain zero.
+It tests cross-TU owner-incarnation identity rather than trusting pointer
+addresses or the author's single-file native harness.
 1024 additional seeded JS BigInt samples are assertions within ONE test,
 not 1024 Node test methods. The compiler rejects fake authority when
 the synthetic test flag is not set. The temporary mutants and binaries
