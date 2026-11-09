@@ -117,3 +117,43 @@ Toolchain emcc/em++, dotnet and REA6.5 unavailable on host PATH;
 no unauthorized installations or sudo. Private DOL identity mismatch,
 actual C# producer provenance, original Wii timebase/IOS/GX/IRQ and
 game boot remain STOP. Only Mario integrates after exact peer reviews.
+
+## Exact pinned real native W03 cross-module experiment (independent)
+
+At first W03 Phase18 peer SHA
+e8a3e8ba5dfbb7a32d205f669b130e9076f60e55 on Peach's branch,
+Toad copied ONLY Git-tracked public/synthetic web-runtime source into a
+disposable /tmp archive via git archive, without touching Peach worktree.
+The test source tests/phase18/toad/w03_pure_integration_native.cpp
+links that pinned REAL W03 frame_loop.cpp/guest_cpu/W04/W07 to our PURE
+time64_pure_clock.hpp. NO Phase17 TransactionService instantiated
+or committed; W03 armCanonicalClock consumes PRIVATE Ticket and only
+W03 publishes GPR3/GPR4, clockTicks and clockRevision in its scheduler.
+
+Positive pinned C++ -O2 -Werror native E2E: 27/27 labeled checks, includes
+512 consecutive real W03 commits from pure floor-nanosecond candidates,
+256 W03 reset/recycle cycles, duplicate ticket and stale epoch/revision,
+malformed pair, arithmetic overflow, independent second guest state,
+no guest opcode/checked RAM and zero extra ledger commits.
+Node integration at NSMB_PHASE18_PEACH_SNAPSHOT=/tmp/archived/web-runtime
+runs 7 methods: positive (nested 27 C++ named checks), native ASan/UBSan
+and FIVE deliberately broken native W03 frame_loop.cpp mutants: bypass
+epoch/version/pair validation, skip canonical ledger write or increment.
+Each mutant compiles but fails its corresponding independent native
+assertion. Exact SHA is validated separately with git rev-parse and origin.
+
+Run reproducibly (from Toad Phase18 worktree), use NEW disposable temp dir:
+
+  tmp=$(mktemp -d /tmp/toad18-w03-qa-XXXXXX)
+  git -C /home/marcos/NSMB archive e8a3e8ba5dfbb7a32d205f669b130e9076f60e55 web-runtime/frame-host web-runtime/src web-runtime/interop web-runtime/runtime-services | tar -xf - -C "$tmp"
+  env -u LD_LIBRARY_PATH -u LD_PRELOAD NSMB_PHASE18_PEACH_SNAPSHOT="$tmp/web-runtime" /usr/bin/node --test tests/phase18/toad/w03_pure_integration.test.mjs
+  rm -rf "$tmp"    # only once confirmed it is a new /tmp archive
+
+This 7-method file intentionally SKIPS source-pinned integration unless
+NSMB_PHASE18_PEACH_SNAPSHOT explicitly points to a reviewed W03 tree.
+Never treat a skip as proof of compatibility. On combined source after
+Mario's authorized merge, supply the actual source root and re-run.
+
+This is a synthetic REAL-native scheduler execution against pinned code,
+not a new Emscripten/Chrome build, original game, or release HLE. Peach may
+publish a later SHA; exact-final fresh review and re-run are mandatory.
