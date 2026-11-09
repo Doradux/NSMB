@@ -7,6 +7,7 @@
 namespace nsmbw::trusted_cpu {
 // W17 native-only scheduler service forward type; no C/JS export.
 enum class ClockArm : uint32_t;
+struct CanonicalClockPlan;
 enum class Status : uint32_t {
   ok=0, invalidTicket=1, stale=2, notReady=3,
   pcMismatch=4, executing=5, unsupported=6
@@ -20,6 +21,7 @@ class Ticket final {
   friend Ticket leaseSynthetic(uint32_t) noexcept;
   friend Status publishSyntheticPair(Ticket&,uint32_t,uint64_t) noexcept;
   friend ClockArm armSyntheticClock(Ticket&,uint32_t,uint64_t) noexcept;
+  friend ClockArm armClockInternal(Ticket&,uint32_t,const CanonicalClockPlan&,bool) noexcept;
 #ifdef NSMB_PHASE16_TRUSTED_CPU_TEST
   friend Ticket forgeForNativeTest(uint32_t,uint64_t,uint64_t,uint64_t) noexcept;
 #endif

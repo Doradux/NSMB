@@ -45,6 +45,8 @@ struct Context {
   bool clockPending=false, clockCommitted=false;
   uint32_t clockExpectedPc=0;
   uint64_t clockEpoch=0, clockOwner=0, clockCandidate=0, clockTicks=0;
+  // PHASE18: W03 alone owns canonical time version and ledger.
+  uint64_t clockRevision=0, clockExpectedRevision=0;
   nsmbw::trusted_cpu::ClockOutcome clockLast=nsmbw::trusted_cpu::ClockOutcome::none;
 };
 std::array<Context,CAPACITY> tasks{};
@@ -165,8 +167,10 @@ Status publishSyntheticPair(Ticket& ticket,uint32_t expectedPc,
 }
 // W17 arm: trusted native host PREPARE only. It cannot move registers or
 // commit the synthetic clock ledger; the actual W03 tick owns COMMIT.
-ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
-                          uint64_t proposedTicks) noexcept {
+ClockArm armClockInternal(Ticket& ticket,uint32_t expectedPc,
+                          const CanonicalClockPlan& plan,
+                          bool requireSourceRevision) noexcept {
+  const uint64_t proposedTicks=plan.rawTicks;
   const uint64_t offered=ticket.serial_;
   ticket.serial_ = 0u; // all attempts consume the caller's private lease
   const bool busy=dispatching || serviceExecuting;
@@ -185,6 +189,17 @@ ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
   // Deliberately small allowlist: only a declared synthetic instruction PC.
   // Arbitrary translated HLE addresses and Wii-native overrides are forbidden.
   if(expectedPc!=SyntheticCpu::Entry)return ClockArm::unsupportedPc;
+  // Echoes of epoch and revision are checked against W03's OWN counters,
+  // not treated as credentials. Ticket epoch/owner/serial already admitted.
+  if(requireSourceRevision && plan.sourceEpoch!=serviceEpoch)
+    return ClockArm::epochMismatch;
+  if(requireSourceRevision && plan.sourceRevision!=t->clockRevision)
+    return ClockArm::staleRevision;
+  if(requireSourceRevision &&
+     (plan.high32!=static_cast<uint32_t>(proposedTicks>>32u) ||
+      plan.low32!=static_cast<uint32_t>(proposedTicks)))
+    return ClockArm::badPair;
+  if(t->clockRevision==UINT64_MAX)return ClockArm::revisionExhausted;
   if(t->clockCommitted && proposedTicks<t->clockTicks)
     return ClockArm::regression;
   t->clockPending=true;
@@ -192,13 +207,67 @@ ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
   t->clockOwner=t->serviceOwner;
   t->clockExpectedPc=expectedPc;
   t->clockCandidate=proposedTicks;
+  t->clockExpectedRevision=t->clockRevision;
   return ClockArm::accepted;
+}
+ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
+                           uint64_t proposedTicks) noexcept {
+  const CanonicalClockPlan candidate{
+    proposedTicks,static_cast<uint32_t>(proposedTicks>>32u),
+    static_cast<uint32_t>(proposedTicks),0,0};
+  return armClockInternal(ticket,expectedPc,candidate,false);
+}
+ClockArm armCanonicalClock(Ticket& ticket,uint32_t expectedPc,
+                           const CanonicalClockPlan& candidate) noexcept {
+  return armClockInternal(ticket,expectedPc,candidate,true);
 }
 ClockSnapshot inspectSyntheticClock(uint32_t guest) noexcept {
   const auto* t=find(guest);
   if(!t)return {};
-  return {true,t->clockCommitted,t->clockPending,t->clockTicks,t->clockLast};
+  return {true,t->clockCommitted,t->clockPending,t->clockTicks,t->clockLast,
+          t->clockRevision,serviceEpoch};
 }
+#ifdef NSMB_PHASE18_CLOCK_TEST
+ClockNativeTestSnapshot clockNativeTestSnapshot(uint32_t guest) noexcept {
+  const auto* t=find(guest);
+  if(!t || t->kind!=1)return {};
+  ClockNativeTestSnapshot result{};
+  result.valid=true;
+  result.cpu=static_cast<const CpuContext&>(t->cpu);
+  result.clock=inspectSyntheticClock(guest);
+  result.trace=trace;
+  result.traceLength=traceCount;
+  result.traceDropped=traceDropped;
+  result.state=t->state;
+  result.error=t->error;
+  return result;
+}
+bool clockNativeTestSetRevision(uint32_t guest,uint64_t revision) noexcept {
+  auto* t=find(guest);
+  if(!t || t->kind!=1 || dispatching || serviceExecuting)return false;
+  t->clockRevision=revision;
+  return true;
+}
+bool clockNativeTestSetExpectedRevision(uint32_t guest,uint64_t revision) noexcept {
+  auto* t=find(guest);
+  if(!t || t->kind!=1 || !t->clockPending || dispatching || serviceExecuting)
+    return false;
+  t->clockExpectedRevision=revision;
+  return true;
+}
+bool clockNativeTestSetExpectedPc(uint32_t guest,uint32_t expectedPc) noexcept {
+  auto* t=find(guest);
+  if(!t || t->kind!=1 || !t->clockPending || dispatching || serviceExecuting)
+    return false;
+  t->clockExpectedPc=expectedPc;
+  return true;
+}
+bool clockNativeTestExhaustSerial() noexcept {
+  if(dispatching || serviceExecuting || serviceExhausted)return false;
+  serviceSerial=UINT64_MAX;
+  return true;
+}
+#endif
 #ifdef NSMB_PHASE16_TRUSTED_CPU_TEST
 Ticket forgeForNativeTest(uint32_t guest,uint64_t epoch,
                           uint64_t owner,uint64_t serial) noexcept {
@@ -447,6 +516,14 @@ int EXPORT nsmbw_loop_tick() {
         t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedPc;
         return static_cast<int>(t.id);
       }
+      if(t.clockRevision!=t.clockExpectedRevision) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedRevision;
+        return static_cast<int>(t.id);
+      }
+      if(t.clockRevision==UINT64_MAX) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedOverflow;
+        return static_cast<int>(t.id);
+      }
       if(t.clockCommitted && ticks<t.clockTicks) {
         t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedRegression;
         return static_cast<int>(t.id);
@@ -458,6 +535,7 @@ int EXPORT nsmbw_loop_tick() {
       t.cpu.gpr[3]=static_cast<uint32_t>(ticks>>32u);
       t.cpu.gpr[4]=static_cast<uint32_t>(ticks);
       t.clockTicks=ticks;
+      ++t.clockRevision; // SAME in-dispatch, no-fail W03 canonical commit
       t.clockCommitted=true;
       t.clockLast=nsmbw::trusted_cpu::ClockOutcome::committed;
       serviceExecuting=false;
