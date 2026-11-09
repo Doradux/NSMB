@@ -136,3 +136,15 @@ test('headers are pure, cannot acquire a scheduler issuer or second ledger',()=>
  assert.match(refText,/nsmbw::w18::fromNanoseconds/);
  assert.match(refText,/nsmbw::w18::addTicks/);
 });
+test('8 native threads share a const reference with 32768 deterministic pure calls',t=>{
+ const d=temp(t,'threads');
+ const binary=join(d,'threaded');
+ const cc=spawnSync('g++',['-std=c++17','-O2','-Wall','-Wextra',
+   '-Werror','-pedantic','-pthread','-I',include,
+   join(root,'tests/phase18/toad/pure_time64_concurrency_native.cpp'),
+   '-o',binary],{encoding:'utf8',timeout:40000});
+ assert.equal(cc.status,0,cc.stderr);
+ const out=run(binary);
+ assert.equal(out.status,0,out.stderr);
+ assert.match(out.stdout,/PURE_CONCURRENT_8_THREADS_32768_VALUES/);
+});

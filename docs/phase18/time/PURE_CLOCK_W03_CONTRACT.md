@@ -157,3 +157,29 @@ Mario's authorized merge, supply the actual source root and re-run.
 This is a synthetic REAL-native scheduler execution against pinned code,
 not a new Emscripten/Chrome build, original game, or release HLE. Peach may
 publish a later SHA; exact-final fresh review and re-run are mandatory.
+
+## Thread independence and measured local benchmark
+
+A separate C++17 fixture uses EIGHT actual std::thread workers,
+each executing 4096 reproducible integer-nanosecond samples against
+the SAME const Reference, with no locks or mutable clock state.
+Each worker's result is rechecked by a separate serial oracle,
+thus 8 * 4096 = 32,768 calls within ONE Node test method.
+This establishes that the PURE helper does not require sharing
+a mutable Time64 clock across guests. It is NOT evidence that W03
+scheduler internals themselves are thread-safe: W03 is independently
+scheduler-owned.
+
+A separate optional C++ benchmark at g++ -O2, 2,000,000 deterministic
+samples per pass, writes a volatile checksum and measures elapsed
+steady_clock nanoseconds. Local example measured on marcos-hpr:
+raw_elapsed_ns=2039690, envelope_elapsed_ns=2069054, sink=0
+(the two passes XOR identical tick samples, so zero sink is expected).
+These are actual single-run diagnostic timings, NOT stable benchmarks
+of a Nintendo guest, not minimum latency guarantees or proof of
+real-time performance. Repeat with your own host and load if needed.
+To reproduce from repo root:
+
+  g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -I web-runtime/runtime-services tests/phase18/toad/pure_time64_benchmark.cpp -o /tmp/pure18benchmark
+  /tmp/pure18benchmark
+  rm -f /tmp/pure18benchmark
