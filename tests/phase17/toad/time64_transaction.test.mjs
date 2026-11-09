@@ -137,6 +137,7 @@ test('exact BigInt nanoseconds ratio and high/low split at 1024 deterministic bo
 test('source-only time64 transaction has no W03 production bridge or JS raw CPU',()=>{
  const source=readFileSync(header,'utf8');
  assert.match(source,/const uint64_t incarnation_ = allocateIncarnation\(\)/);
+ assert.doesNotMatch(source,/const_cast</);
  assert.match(source,/if \(inspect.revision!=proposed.revision_\)/);
  assert.match(source,/slot.cpu.gpr\[3\]/);
  assert.match(source,/slot.cpu.gpr\[4\]/);

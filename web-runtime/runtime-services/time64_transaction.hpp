@@ -55,7 +55,7 @@ public:
 };
 class Prepared final {
   friend class TransactionService;
-  TransactionService* owner_;
+  const TransactionService* owner_;
   uint64_t incarnation_;
   unsigned slot_;
   uint64_t generation_;
@@ -63,7 +63,7 @@ class Prepared final {
   uint32_t pc_;
   uint64_t ticks_;
   bool usable_ = true;
-  Prepared(TransactionService& owner, unsigned slot, uint64_t generation,
+  Prepared(const TransactionService& owner, unsigned slot, uint64_t generation,
            uint64_t revision, uint32_t pc, uint64_t ticks) noexcept;
 public:
   Prepared() = delete;
@@ -184,7 +184,7 @@ public:
       return {Error::overflow,std::nullopt};
     if (requestedTicks<slot.ticks) return {Error::regression,std::nullopt};
     return {Error::ok,std::optional<Prepared>{Prepared{
-      const_cast<TransactionService&>(*this),slotId,generation,
+      *this,slotId,generation,
       slot.revision,expectedPc,requestedTicks}}};
   }
   Proposal prepareNanoseconds(unsigned slotId,uint64_t generation,
@@ -266,7 +266,7 @@ inline Authority::Authority(TransactionService& owner,unsigned slot,
                             Phase phase) noexcept
  : owner_(&owner),incarnation_(owner.incarnation_),slot_(slot),
    generation_(generation),expectedPc_(pc),action_(action),phase_(phase) {}
-inline Prepared::Prepared(TransactionService& owner,unsigned slot,
+inline Prepared::Prepared(const TransactionService& owner,unsigned slot,
                           uint64_t generation,uint64_t revision,uint32_t pc,
                           uint64_t ticks) noexcept
  : owner_(&owner),incarnation_(owner.incarnation_),slot_(slot),

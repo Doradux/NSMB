@@ -33,6 +33,8 @@ secrets and live guest state are neither loaded nor required.
   build an opaque move-only `Prepared` with owner incarnation, slot,
   generation, revision, expected PC and candidate ticks. **PREPARE is
   const and never changes guest CPU, clock ledger, revision or guest state.**
+  The `Prepared` token internally retains a `const TransactionService*`,
+  not a mutable CPU pointer; proposal construction needs NO const_cast.
   All uint64 bounds/monotonicity and unsupported guest memory/MMIO/IRQ are
   denied at prepare time. No implicit wall clock is sampled.
 - `abort(Prepared&&)` consumes just that local candidate; it does not
