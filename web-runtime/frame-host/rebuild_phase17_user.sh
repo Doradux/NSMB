@@ -23,21 +23,28 @@ if [ "$#" -ne 2 ] || [ "$1" != "--build" ]; then
   echo "Usage: sh rebuild_phase17_user.sh --probe | --build ABSOLUTE_EMPTY_OUTDIR" >&2
   exit 64
 fi
-# Normalize before the repository containment check; reject symlink/prefix
-# tricks and ensure no output can touch the checked-out Git source.
+# Check the ORIGINAL CLI argument first: realpath -m would otherwise
+# convert a relative argument into an absolute path, violating the contract.
+# This denial must happen before mkdir, em++, or even normalizing the path.
+case "$2" in
+  /*) ;;
+  *) echo "DENY: output path must be absolute" >&2; exit 64 ;;
+esac
+# Two containment checks are intentional: the lexical path catches paths
+# physically under the checkout that traverse symlinks OUT of it; the physical
+# path catches external aliases/symlinks INTO the checkout. Never write to
+# either spelling of the Git worktree. -s is GNU realpath --no-symlinks.
 if ! command -v realpath >/dev/null 2>&1; then
   echo "BLOCKED-ENV: realpath required to validate destination" >&2
   exit 78
 fi
+out_lex=$(realpath -m -s -- "$2")
 out=$(realpath -m -- "$2")
-case "$out" in
-  /*) ;;
-  *) echo "DENY: output path must be absolute" >&2; exit 64 ;;
-esac
-# Fail closed: do not generate into tracked repo or source tree.
-case "$out/" in
-  "$repo/"*) echo "DENY: output may not be under NSMB Git worktree" >&2; exit 64 ;;
-esac
+for destination in "$out_lex" "$out"; do
+  case "$destination/" in
+    "$repo/"*) echo "DENY: output may not be under NSMB Git worktree" >&2; exit 64 ;;
+  esac
+done
 if ! command -v em++ >/dev/null 2>&1; then
   echo "BLOCKED-ENV: em++ unavailable, no build attempted" >&2
   exit 78

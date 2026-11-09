@@ -47,11 +47,38 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD \
   --build /tmp/nsmb-phase17-wasm-qa
 ```
 
-The directory **must be empty**: the script refuses to overwrite
-previous artifacts and refuses destinations inside the source checkout.
-Outputs, if compiled successfully, are `frame_loop.mjs`,
-`frame_loop.wasm` and `build_manifest.txt` containing exact
-source/binary SHA-256 and toolchain information.
+The destination argument MUST already be **absolute as supplied**.
+Before running `realpath`, `--build relative-output`, `./output`,
+`../output` and other relative spellings are rejected with exit **64**
+without creating directories or invoking `em++`. Normalization must not
+silently turn relative paths into allowed absolute destinations.
+
+The destination **must be empty**: the script refuses to overwrite
+previous artifacts and refuses directories inside the source checkout,
+checking both the path normalized **without** following symlinks and the
+fully resolved physical destination. External symlinks into the checkout
+are denied; a path under the checkout that aliases elsewhere is also
+denied. Paths containing spaces are supported. If GNU `realpath` is
+unavailable, the build exits **78/BLOCKED-ENV** before creating a
+destination, not a false compilation success.
+
+The RED/GREEN regression suite is:
+```bash
+env -u LD_LIBRARY_PATH -u LD_PRELOAD node --test \
+  tests/phase17/peach/rebuild_phase17_user.test.mjs
+```
+It uses a controlled fake `em++` that records any invocation and exits
+**42**, never a real compiler or a Wii asset. Relative paths must exit
+**64** without invoking that stub; a valid new absolute external output
+may reach the stub and exit 42, which is **NOT** a Wasm build PASS.
+The tests cover relative traversal, spaces, existing nonempty output,
+repo roots, external-to-repo symlinks, CLI errors, absent compiler and
+absent `realpath`.
+
+Outputs, **if legitimately compiled in a later authorized environment**,
+are `frame_loop.mjs`, `frame_loop.wasm` and
+`build_manifest.txt` containing source/binary SHA-256 and toolchain
+information.
 
 **After a successful build** (not achieved here), Mario and independent
 reviewers still need to execute that **new file** through Node and a
