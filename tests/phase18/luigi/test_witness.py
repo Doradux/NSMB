@@ -106,6 +106,19 @@ class IndependentToyObserver(unittest.TestCase):
         self.assertTrue(report['sourceByteIntegrity'])
         self.assertFalse(report['authenticReleaseEligible'])
 
+    def test_oversized_unterminated_child_line_denied_bounded(self):
+        with self.assertRaisesRegex(ValueError,'oversized event'):
+            self.observation(huge_event=True)
+
+    def test_hostile_child_stderr_flood_cannot_deadlock_parent(self):
+        report=self.observation(flood_stderr=True,timeout_seconds=3)
+        self.assertEqual(report['eventCount'],34)
+        self.assertFalse(report['producerAttested'])
+
+    def test_stalled_child_without_newline_hits_deadline_and_is_killed(self):
+        with self.assertRaisesRegex(ValueError,'deadline exceeded'):
+            self.observation(hang_seconds=2,timeout_seconds=0.15)
+
     def test_observer_cli_separate_process_exit3_and_4(self):
         with tempfile.TemporaryDirectory(prefix='luigi-p18-cli-') as tmp:
             p=Path(tmp)

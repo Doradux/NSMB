@@ -10,6 +10,7 @@ from pathlib import Path
 import argparse
 import json
 import sys
+import time
 
 from scripts.phase16.luigi.fixtures import encode
 from scripts.phase16.luigi.sidecar import digest
@@ -18,7 +19,8 @@ from scripts.phase17.luigi.producer import OriginProducer, DecodeFailure, MAX_FU
 
 def publish(source: bytes, map_bytes: bytes, config: bytes, destination: Path,
             run_nonce: str, *, abort_after: int = -1, early_output: bool = False,
-            omit_output: bool = False, duplicate_key: bool = False) -> int:
+            omit_output: bool = False, duplicate_key: bool = False,
+            huge_event: bool = False, flood_stderr: bool = False) -> int:
     if len(run_nonce)!=32 or any(c not in "0123456789abcdef" for c in run_nonce):
         raise ValueError("toy observer run nonce must be 32 lowercase hexadecimal")
     if destination.exists():
@@ -26,6 +28,14 @@ def publish(source: bytes, map_bytes: bytes, config: bytes, destination: Path,
     if max(len(source),len(map_bytes),len(config))>2_000_000:
         raise ValueError("oversized synthetic fixture")
     toy=OriginProducer(source,map_bytes,config)
+    # Negative-only cases: the observer MUST bound these untrusted streams.
+    if flood_stderr:
+        sys.stderr.buffer.write(b"X"*300_000)
+        sys.stderr.buffer.flush()
+    if huge_event:
+        sys.stdout.buffer.write(b"{" + b"Z"*110_000)
+        sys.stdout.buffer.flush()
+        raise ValueError("deliberately oversized, unterminated event")
     output=destination
     output.mkdir(parents=True,exist_ok=False)
     seen={toy.root}
@@ -118,15 +128,21 @@ def main(argv=None):
                         help="synthetic adversarial negative ONLY")
     parser.add_argument("--duplicate-json-key",action="store_true",
                         help="synthetic adversarial negative ONLY")
+    parser.add_argument("--huge-event",action="store_true")
+    parser.add_argument("--flood-stderr",action="store_true")
+    parser.add_argument("--hang-seconds",type=float,default=0)
     args=parser.parse_args(argv)
     try:
         for path in (args.source,args.map,args.config):
             if not Path(path).is_file():raise ValueError("missing toy input")
+        if args.hang_seconds:
+            time.sleep(args.hang_seconds)
         publish(Path(args.source).read_bytes(),Path(args.map).read_bytes(),
                 Path(args.config).read_bytes(),Path(args.out),args.nonce,
                 abort_after=args.abort_after,
                 early_output=args.inject_early_output,omit_output=args.omit_output,
-                duplicate_key=args.duplicate_json_key)
+                duplicate_key=args.duplicate_json_key,
+                huge_event=args.huge_event,flood_stderr=args.flood_stderr)
         return 3 # synthetic-only STOP, even after run_completed
     except (OSError,ValueError,UnicodeError,RuntimeError):
         print("TOY_PRODUCER_ABORT_STOP",file=sys.stderr)

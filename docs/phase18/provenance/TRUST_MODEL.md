@@ -71,3 +71,19 @@ explicitly *not* the independent challenge required for real attestation.
 
 Until then, **UNATTESTED / NO-GO**. Synthetic tests and public source
 patch compatibility are useful engineering evidence, not game execution.
+
+## Bounded observer against untrusted-stream denial-of-service
+
+Initial independent peer pre-review by Toad on 9 Nov identified that
+Python iteration over child.stdout implicitly uses an UNBOUNDED readline
+and a child stderr PIPE left unread could deadlock a producer. Both were
+fixed before the final Luigi SHA. Our observer now uses selectors,
+bounded os.read chunks and a monotonic wall deadline; it limits the
+entire stream, each newline-delimited event, and total event count
+BEFORE parsing. stderr is discarded (no deadlock). A child that stalls,
+emits an oversized line, sends ambiguous Unicode JSON keys, floods
+stderr or aborts before completion cannot become authenticated.
+Negative-only flags in the invented producer exist solely to reproduce
+these failures, and do NOT enable real Nintendo execution.
+
+See STRESS_AND_BENCHMARK.md for measured counts and the exact command.

@@ -9,6 +9,8 @@ from pathlib import Path
 import argparse
 import json
 import os
+import selectors
+import time
 import re
 import subprocess
 import sys
@@ -23,10 +25,59 @@ HEX64=re.compile(r"^[0-9a-f]{64}$")
 HEX32=re.compile(r"^[0-9a-f]{32}$")
 MAX_EVENTS=1000
 MAX_BYTES=2_000_000
+MAX_LINE=100_000
+
+
+def read_bounded_event_stream(child,nonce:str,deadline_seconds:float):
+    """Read a hostile child pipe WITHOUT unbounded readline, stderr deadlocks,
+    or an unbounded wait for a missing newline.
+    """
+    assert child.stdout is not None
+    deadline=time.monotonic()+deadline_seconds
+    pending=bytearray()
+    rows=[]
+    total=0
+    with selectors.DefaultSelector() as selector:
+        selector.register(child.stdout,selectors.EVENT_READ)
+        while True:
+            remaining=deadline-time.monotonic()
+            if remaining<=0:
+                raise ValueError("toy producer event stream deadline exceeded")
+            if not selector.select(remaining):
+                raise ValueError("toy producer event stream deadline exceeded")
+            part=os.read(child.stdout.fileno(),4096)
+            if not part:break
+            total+=len(part)
+            if total>MAX_BYTES:
+                raise ValueError("toy event stream exceeds total byte bound")
+            pending.extend(part)
+            while True:
+                end=pending.find(b"\n")
+                if end<0:break
+                if end>MAX_LINE or len(rows)>=MAX_EVENTS:
+                    raise ValueError("trace event exceeded limits")
+                line=bytes(pending[:end+1])
+                del pending[:end+1]
+                try:
+                    row=load_translation_json(line.decode("utf-8"))
+                except (UnicodeError,json.JSONDecodeError,ValueError) as exc:
+                    raise ValueError("invalid child event encoding") from exc
+                if (type(row) is not dict or row.get("runNonce")!=nonce or
+                        type(row.get("seq")) is not int or row["seq"]!=len(rows)):
+                    raise ValueError("inconsistent event nonce or order")
+                rows.append(row)
+            if len(pending)>MAX_LINE:
+                raise ValueError("unterminated or oversized event line")
+    if pending:
+        raise ValueError("unterminated final event line")
+    child.wait(timeout=max(0.1,deadline-time.monotonic()))
+    return rows
 
 
 def observe(source:bytes,map_bytes:bytes,config:bytes, pins:dict,
-            nonce:str, *, abort_after=-1, early_output=False, omit_output=False, duplicate_key=False) -> dict:
+            nonce:str, *, abort_after=-1, early_output=False, omit_output=False,
+            duplicate_key=False, timeout_seconds:float=15,
+            huge_event=False,flood_stderr=False,hang_seconds=0) -> dict:
     if type(pins) is not dict or set(pins)!={
         "sourceSha256","mapSha256","configSha256","observerCodeSha256"}:
         raise ValueError("independent input pin schema")
@@ -62,27 +113,19 @@ def observe(source:bytes,map_bytes:bytes,config:bytes, pins:dict,
         if early_output:args.append("--inject-early-output")
         if omit_output:args.append("--omit-output")
         if duplicate_key:args.append("--duplicate-json-key")
+        if huge_event:args.append("--huge-event")
+        if flood_stderr:args.append("--flood-stderr")
+        if hang_seconds:args+=["--hang-seconds",str(hang_seconds)]
         env=os.environ.copy()
         env["PYTHONDONTWRITEBYTECODE"]="1"
         env.pop("LD_LIBRARY_PATH",None)
         env.pop("LD_PRELOAD",None)
-        child=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        # Drain only bounded event bytes; stderr is deliberately discarded,
+        # so a malicious producer cannot fill its pipe and deadlock us.
+        child=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
             env=env,cwd=Path(__file__).resolve().parents[3],bufsize=0)
         try:
-            assert child.stdout is not None
-            for line in child.stdout:
-                if len(line)>100_000 or len(observed)>=MAX_EVENTS:
-                    child.kill()
-                    raise ValueError("trace event exceeded limits")
-                try: row=load_translation_json(line.decode("utf-8"))
-                except (UnicodeError,json.JSONDecodeError,ValueError) as exc:
-                    child.kill()
-                    raise ValueError("invalid child event encoding") from exc
-                if type(row) is not dict or row.get("runNonce")!=nonce or                    type(row.get("seq")) is not int or row["seq"]!=len(observed):
-                    child.kill()
-                    raise ValueError("inconsistent event nonce or order")
-                observed.append(row)
-            _,errors=child.communicate(timeout=15)
+            observed=read_bounded_event_stream(child,nonce,timeout_seconds)
             if child.returncode!=3:
                 raise ValueError("child ended without a successful synthetic STOP")
             if not observed or observed[-1].get("kind")!="run_completed":
@@ -136,6 +179,9 @@ def main(argv=None):
     parser.add_argument("--inject-early-output",action="store_true")
     parser.add_argument("--omit-output",action="store_true")
     parser.add_argument("--duplicate-json-key",action="store_true")
+    parser.add_argument("--huge-event",action="store_true")
+    parser.add_argument("--flood-stderr",action="store_true")
+    parser.add_argument("--hang-seconds",type=float,default=0)
     args=parser.parse_args(argv)
     try:
         source=Path(args.source).read_bytes()
@@ -145,7 +191,9 @@ def main(argv=None):
         report=observe(source,map_bytes,config,pins,args.nonce,
                        abort_after=args.abort_after,
                        early_output=args.inject_early_output,
-                       omit_output=args.omit_output,duplicate_key=args.duplicate_json_key)
+                       omit_output=args.omit_output,duplicate_key=args.duplicate_json_key,
+                       huge_event=args.huge_event,flood_stderr=args.flood_stderr,
+                       hang_seconds=args.hang_seconds)
         print(json.dumps(report,sort_keys=True))
         return 3 # NEVER authentic release success
     except (ValueError,OSError,TypeError,RuntimeError,subprocess.TimeoutExpired):
