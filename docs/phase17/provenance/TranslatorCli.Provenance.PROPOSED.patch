@@ -1,0 +1,98 @@
+# REVIEW DRAFT ONLY / NOT BUILT / NOT APPLIED / MISSING TRUST WITNESS API
+# Target: pinned public upstream-nsmbw commit 20f0158dd1d96bd94f821adf80ee361e4fbd414e
+# The ProposedProducerTrace and RequireTrusted* helpers below DO NOT EXIST.
+# Deliberately fails build until the trust producer/observer seam is specified.
+# In particular the v1 toy schema CANNOT encode the true C# emission ordering;
+# this patch outlines a distinct version-2 trace, not an automatic W01 bypass.
+# DO NOT APPLY THIS TO main, worktrees or pinned upstream AS-IS.
+
+diff --git a/translator/src/Translator.Cli/Program.cs b/translator/src/Translator.Cli/Program.cs
+--- a/translator/src/Translator.Cli/Program.cs
++++ b/translator/src/Translator.Cli/Program.cs
+@@ -466,9 +466,19 @@
+             $"[translator] Leaf inlining: {leafInliningBlockedTargets.Value.Count:N0} address(es) are not " +
+             "inlinable (native, excluded from translation, or mod-patched).");
+
++        // PROPOSAL: all three trusted references are independent of the
++        // C# process and have to be verified against the actual loader bytes.
++        // TODO: implement RequireTrusted* and observer policy in a NEW
++        // independently reviewed producer patch, not in this source tree.
++        using var causal = ProposedProducerTrace.BeginV2(
++            RequireTrustedSourceWitness(), RequireTrustedConfigWitness(),
++            RequireTrustedMapWitness(), RequireIndependentObserverNonce());
+         var queue = new Queue<(uint addr, int depth)>();
+         queue.Enqueue((startAddr, 0));
+         visited.Add(startAddr);
++        causal.RootDeclared(startAddr); // actual enqueue site
+@@ -477,6 +487,8 @@
+         var speculativeSeeds = new Queue<uint>(functionMap?.Addresses ?? Array.Empty<uint>());
+         var speculativeSkips = new List<(uint Address, string Reason)>();
++        foreach (var seed in speculativeSeeds)
++            causal.MapSeedDeclared(seed); // actual canonical MAP inventory
+@@ -553,10 +565,13 @@
+                 var candidates = QueueBatch.Dequeue(
+                     speculativeSeeds,
+                     batchSize,
+                     address => translated.Contains(address) || !visited.Add(address));
++                // TODO: record visited/deduplicated per original seed from
++                // this dequeue API. A MAP seed discovered via WALK is WALK.
+                 foreach (var address in candidates)
+                 {
++                    causal.SpeculativeQueued(address); // actual accepted enqueue
+                     // Nothing calls this from the translated set, so its entry
+@@ -657,10 +672,17 @@
+             // Update state sequentially (thread-safe)
+             for (var i = 0; i < batch.Count; i++)
+             {
+-                if (results[i] is not { } result) continue;
++                if (results[i] is not { } result)
++                {
++                    // MUST use deterministic per-index failure record,
++                    // not global speculativeSkips worker completion order.
++                    causal.SpeculativeFailed(batch[i].Address,
++                        RequireCanonicalFailureForBatchIndex(i)); // TODO
++                    continue;
++                }
+                 CommitResult(batch[i], result, discoveryTargets[i], summaries[i]);
+             }
+@@ -727,6 +749,11 @@
+             totals.Add(result.Metrics);
+             count++;
+             translated.Add(work.Address);
++            // Provisional commit, NOT the final C++ artifact emission.
++            // Keep the event under the serial commit barrier. The complete
++            // run MUST later supersede this if boundary repair changes SSA.
++            causal.TranslationCommitted(work.Address,
++                RequireCanonicalDecodedSsaFingerprint(result)); // TODO
+@@ -735,8 +762,10 @@
+                 knownBaseFunctionEntryPoints.Add(target);
+                 if (visited.Add(target))
+                 {
+                     queue.Enqueue((target, work.Depth + 1));
++                    causal.TargetDiscovered(work.Address, target);
+                 }
+@@ -827,6 +856,9 @@
+                     var address = boundaryRepairAddresses[i];
+                     baseSummaries[address] = GqrFunctionSummary.Create(repaired[i].Ssa.Function);
+                     canonicalIrStore.Put(address, repaired[i].Ssa.Function);
++                    causal.BoundarySuperseded(address,
++                        RequireCanonicalDecodedSsaFingerprint(repaired[i])); // TODO
+@@ -1455,6 +1487,13 @@
+             }
+             bundleWriter?.Complete();
++            // SOURCE-BOUND output-emitted events belong AFTER completed
++            // output/bundle writer. Iterate canonical sorted metadata slots
++            // and validate durable path/digest, not worker callback order.
++            // TODO: RequireDurableOutputHash must re-read private artifacts.
++            for (var i = 0; i < emissionAddresses.Length; i++)
++                causal.OutputEmitted(emissionAddresses[i],
++                    outputMetadata![i], RequireDurableOutputHash(outputMetadata![i]));
+             LogPhase("emission wave + bundle write");
+@@ -1481,6 +1520,10 @@
+                     null,
+                     bundleReference,
+                     BuildModPatchAwareness(modPatchProfiles.Value));
++                // Only after a full successful run, evidence completeness,
++                // output-metadata hashes and independent observer signature
++                // are validated may ANY sealed producer record be published.
++                causal.TryCompleteDenyByDefault(completedOutputMetadata); // TODO
