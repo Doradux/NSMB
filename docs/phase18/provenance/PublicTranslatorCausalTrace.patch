@@ -1,0 +1,220 @@
+diff --git a/translator/src/Translator.Cli/Program.cs b/translator/src/Translator.Cli/Program.cs
+--- a/translator/src/Translator.Cli/Program.cs
++++ b/translator/src/Translator.Cli/Program.cs
+@@ -431,7 +431,21 @@
+     try
+     {
+         Directory.CreateDirectory(outDir);
+-
++        // Source-site observation is OPTIONAL and self-reported, NOT attested.
++        using var causalTrace = PublicProducerTrace.OpenFromEnvironment();
++        if (causalTrace is not null && (outputMetadataPath is null || !emitFunctionFiles))
++            throw new InvalidOperationException("Trace requires --output-metadata and function files.");
++        if (causalTrace is not null)
++        {
++            causalTrace.Emit("source_sha256", startAddr, sha256:
++                PublicProducerTrace.HashFile(RequireProject().Inputs.Dol.Path));
++            if (functionMap is not null)
++                causalTrace.Emit("map_sha256", startAddr, sha256:
++                    PublicProducerTrace.HashFile(functionMap.SourcePath));
++            if (!string.IsNullOrWhiteSpace(projectOption))
++                causalTrace.Emit("project_config_sha256", startAddr, sha256:
++                    PublicProducerTrace.HashFile(projectOption));
++        }
+         var visited = new HashSet<uint>();
+         var translated = new HashSet<uint>();
+         // Per translated function: sorted, coalesced [start, endExclusive) pairs of
+@@ -469,6 +483,7 @@
+         var queue = new Queue<(uint addr, int depth)>();
+         queue.Enqueue((startAddr, 0));
+         visited.Add(startAddr);
++        causalTrace?.Emit("root_declared", startAddr);
+ 
+         // Map entries the call-graph walk never reaches. They are translated, but
+         // on a decode or lift failure they are skipped with a count instead of
+@@ -476,6 +491,9 @@
+         // entry is really code, and one noisy line must not block a release.
+         var speculativeSeeds = new Queue<uint>(functionMap?.Addresses ?? Array.Empty<uint>());
+         var speculativeSkips = new List<(uint Address, string Reason)>();
++        if (causalTrace is not null)
++            foreach (var seed in speculativeSeeds)
++                causalTrace.Emit("map_seed_declared", seed);
+ 
+         var count = 0;
+         var totals = new List<TranslationMetrics>();
+@@ -555,9 +573,14 @@
+                 var candidates = QueueBatch.Dequeue(
+                     speculativeSeeds,
+                     batchSize,
+-                    address => translated.Contains(address) || !visited.Add(address));
++                    address => {
++                        var rejected = translated.Contains(address) || !visited.Add(address);
++                        if (rejected) causalTrace?.Emit("map_seed_deduplicated", address);
++                        return rejected;
++                    });
+                 foreach (var address in candidates)
+                 {
++                    causalTrace?.Emit("map_seed_queued", address);
+                     // Nothing calls this from the translated set, so its entry
+                     // GQR state is unconstrained.
+                     gqrUnknownEntryRoots.Add(address);
+@@ -598,6 +621,10 @@
+         // decoded out of one - is dropped with a counted warning.
+         void TranslateBatch(List<(uint Address, int Depth, string Name)> batch, bool speculative = false)
+         {
++            // Serial, deterministic dispatch intent (not worker completion order).
++            if (causalTrace is not null)
++                foreach (var item in batch)
++                    causalTrace.Emit(speculative ? "speculative_attempted" : "walk_attempted", item.Address);
+             var results = new FunctionDiscoveryResult?[batch.Count];
+             IndexedParallel.For(batch.Count, parallelOptions, i => results[i] = Attempt(batch[i], speculative));
+ 
+@@ -633,6 +660,10 @@
+                     }
+                 }
+ 
++                // Retry intent observed in serial order BEFORE workers race.
++                if (causalTrace is not null)
++                    foreach (var index in affected)
++                        causalTrace.Emit("boundary_retry_attempted", batch[index].Address);
+                 IndexedParallel.For(affected.Count, parallelOptions, k =>
+                 {
+                     var i = affected[k];
+@@ -659,7 +690,11 @@
+             // Update state sequentially (thread-safe)
+             for (var i = 0; i < batch.Count; i++)
+             {
+-                if (results[i] is not { } result) continue;
++                if (results[i] is not { } result)
++                {
++                    if (speculative) causalTrace?.Emit("speculative_skipped", batch[i].Address);
++                    continue;
++                }
+                 CommitResult(batch[i], result, discoveryTargets[i], summaries[i]);
+             }
+         }
+@@ -727,6 +762,7 @@
+             totals.Add(result.Metrics);
+             count++;
+             translated.Add(work.Address);
++            causalTrace?.Emit("translation_committed", work.Address);
+             translatedFunctionEnds[work.Address] = GetFunctionInstructionEnd(result);
+             translatedFlowCoverage[work.Address] = CoalesceInstructionRanges(result);
+ 
+@@ -736,6 +772,7 @@
+                 if (visited.Add(target))
+                 {
+                     queue.Enqueue((target, work.Depth + 1));
++                    causalTrace?.Emit("target_discovered", target, parent: work.Address);
+                 }
+             }
+ 
+@@ -830,6 +867,7 @@
+                     canonicalIrStore.Put(address, repaired[i].Ssa.Function);
+                     translatedFunctionEnds[address] = GetFunctionInstructionEnd(repaired[i]);
+                     translatedFlowCoverage[address] = CoalesceInstructionRanges(repaired[i]);
++                    causalTrace?.Emit("boundary_superseded", address);
+                 }
+             }
+ 
+@@ -1455,6 +1493,7 @@
+                 }
+             }
+             bundleWriter?.Complete();
++            causalTrace?.Emit("bundle_wave_completed", startAddr);
+             LogPhase("emission wave + bundle write");
+             if (outputMetadata is not null)
+             {
+@@ -1521,6 +1560,18 @@
+             Console.WriteLine(updated
+                 ? $"[translator] Updated base translation metadata: {outputMetadataPath}"
+                 : $"[translator] Base translation metadata unchanged: {outputMetadataPath}");
++            // Verify actual durable emitted bytes, after the final writer and metadata.
++            if (causalTrace is not null)
++                foreach (var function in completedOutputMetadata.Functions)
++                {
++                    var path = Path.Combine(outDir, function.RelativePath);
++                    var actualHash = PublicProducerTrace.HashFile(path);
++                    if (!string.Equals(actualHash, function.Sha256,
++                        StringComparison.OrdinalIgnoreCase))
++                        throw new InvalidDataException("Observed function byte SHA mismatch.");
++                    causalTrace.Emit("output_emitted", function.EntryPoint,
++                        sha256: actualHash);
++                }
+         }
+         if (completedModAwareness is not null)
+         {
+@@ -1531,6 +1582,17 @@
+             Console.WriteLine($"[translator] Recorded mod-patch awareness detail: {awarenessPath}");
+         }
+         Console.WriteLine($"[translator] File writes: {filesUpdated} updated, {filesUnchanged} unchanged.");
++        // Completion requires actual durable output metadata & function bytes.
++        // An empty or partial translation NEVER gets run_completed.
++        if (causalTrace is not null)
++        {
++            if (completedOutputMetadata is null ||
++                completedOutputMetadata.Functions.Count != translated.Count)
++                throw new InvalidDataException("Incomplete causal function inventory.");
++            causalTrace.Emit("metadata_sha256", startAddr, sha256:
++                PublicProducerTrace.HashFile(outputMetadataPath!));
++            causalTrace.Emit("run_completed", startAddr);
++        }
+     }
+     catch (Exception ex)
+     {
+diff --git a/translator/src/Translator.Cli/PublicProducerTrace.cs b/translator/src/Translator.Cli/PublicProducerTrace.cs
+new file mode 100644
+--- /dev/null
++++ b/translator/src/Translator.Cli/PublicProducerTrace.cs
+@@ -0,0 +1,51 @@
++// Opt-in PUBLIC trace writer; same process as producer, so NEVER attested.
++// NSMB_PUBLIC_PRODUCER_TRACE must designate a new, absolute private path.
++using System;
++using System.IO;
++using System.Text.Json;
++
++internal sealed class PublicProducerTrace : IDisposable
++{
++    private readonly StreamWriter writer;
++    private readonly string runId;
++    private long nextSequence;
++
++    private PublicProducerTrace(string path)
++    {
++        if (!Path.IsPathFullyQualified(path))
++            throw new ArgumentException("Trace destination must be absolute.", nameof(path));
++        // CreateNew avoids overwriting an older witness candidate.
++        writer = new StreamWriter(new FileStream(path, FileMode.CreateNew,
++            FileAccess.Write, FileShare.None)) { AutoFlush = true };
++        runId = Guid.NewGuid().ToString("N"); // self-chosen, NOT trusted
++        Emit("run_open", 0);
++    }
++
++    internal static PublicProducerTrace? OpenFromEnvironment()
++    {
++        var path = Environment.GetEnvironmentVariable("NSMB_PUBLIC_PRODUCER_TRACE");
++        return string.IsNullOrWhiteSpace(path) ? null : new PublicProducerTrace(path);
++    }
++
++    internal static string HashFile(string path)
++    {
++        using var stream = File.OpenRead(path);
++        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream))
++            .ToLowerInvariant();
++    }
++
++    // All uses must be on the serial root/commit/emission thread.
++    internal void Emit(string kind, uint address, uint? parent = null,
++                       string? sha256 = null)
++    {
++        writer.WriteLine(JsonSerializer.Serialize(new
++        {
++            schemaVersion = 2, runId, sequence = nextSequence++,
++            kind, address, parent, sha256,
++            producerAttested = false,
++            authenticReleaseEligible = false
++        }));
++    }
++
++    public void Dispose() => writer.Dispose();
++}

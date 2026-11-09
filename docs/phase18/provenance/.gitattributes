@@ -1,0 +1,3 @@
+# Unified diff context encodes empty source lines as one mandatory leading
+# ASCII space. Treat them as syntax, not trailing whitespace in this artifact.
+*.patch whitespace=-blank-at-eol
