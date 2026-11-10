@@ -5,7 +5,6 @@
 #include "guest_cpu.hpp"
 #include "trusted_cpu_service.hpp"
 #include "scheduler_clock.hpp"
-#include "../runtime-services/time64_pure_clock.hpp"
 #include "../runtime-services/synthetic_service_dispatch.hpp"
 #if defined(NSMB_P20_ENABLE_SERVICE_V2)
 #include "../runtime-services/synthetic_service_v2.hpp"
@@ -284,6 +283,13 @@ bool clockNativeTestSetExpectedPc(uint32_t guest,uint32_t expectedPc) noexcept {
   t->clockExpectedPc=expectedPc;
   return true;
 }
+bool clockNativeTestSetServiceQuota(uint32_t guest,uint32_t quota) noexcept {
+  auto* t=find(guest);
+  if(!t ||t->kind!=1||!t->serviceFixture||!t->clockPending||
+     dispatching||serviceExecuting)return false;
+  t->serviceQuota=quota;
+  return true;
+}
 bool clockNativeTestExhaustSerial() noexcept {
   if(dispatching || serviceExecuting || serviceExhausted)return false;
   serviceSerial=UINT64_MAX;
@@ -372,15 +378,20 @@ int EXPORT nsmbw_loop_synthetic_clock_fixture_spawn(uint32_t id,
  uint32_t nanosHigh,uint32_t nanosLow) {
   if(dispatching || serviceExecuting){lastError=8;return 0;}
   const uint64_t nanos=(uint64_t(nanosHigh)<<32)|nanosLow;
-  const nsmbw::time64_pure::Reference source{0,0,serviceEpoch,0,false};
-  const auto prepared=nsmbw::time64_pure::prepareFromNanos(
-    nanos,source,serviceEpoch,0);
+  // The P19 PURE service dispatcher already includes the public Time64
+  // candidate. Avoid importing another physical copy of the header when
+  // mutation tests compile a disposable W03 source snapshot in /tmp.
+  const auto prepared=nsmbw::w18::fromNanoseconds(nanos);
   if(!prepared.ok()){lastError=8;return 0;}
   // No caller-supplied entry or PC: a new copyright-free W03 kind1 only.
   if(!nsmbw_loop_cpu_spawn(id,SyntheticCpu::Entry,stackTop,
                            inputGuest,outputGuest,salt))return 0;
   auto ticket=nsmbw::trusted_cpu::leaseSynthetic(id);
-  const auto candidate=prepared.candidate;
+  // Keep the P19 native candidate shape and guard site stable for
+  // independently written actual-source red/green mutation assertions.
+  const nsmbw::trusted_cpu::CanonicalClockPlan candidate{
+    prepared.candidate.ticks,prepared.candidate.high32(),
+    prepared.candidate.low32(),serviceEpoch,0};
   const nsmbw::trusted_cpu::CanonicalClockPlan plan{
     candidate.rawTicks,candidate.high32,candidate.low32,
     candidate.sourceEpoch,candidate.sourceRevision};
@@ -499,11 +510,11 @@ int EXPORT nsmbw_loop_suspend(uint32_t id) {
   lastError=0;auto* t=find(id);
   if(!t||t->state!=READY){lastError=3;return 0;}
   t->outstandingService=0;
+  t->clockServicePending=false;t->toyLeafPending=false;
   if(t->clockPending) {
     t->clockPending=false;
     t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
   }
-  t->clockServicePending=false;t->toyLeafPending=false;
   t->state=PAUSED;return 1;
 }
 int EXPORT nsmbw_loop_resume(uint32_t id) {

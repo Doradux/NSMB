@@ -135,6 +135,23 @@ int main(){
  expect(nsmbw_loop_synthetic_service_quota(1)==0 &&
   nsmbw_loop_clock_revision_lo(1)==1,
   "quota denial never refunds or advances canonical clock version");
+ // Even a native C++ caller with a REAL private Ticket cannot bypass
+ // Phase20 service mode through preexisting Phase16/18 clock interfaces.
+ const auto baseline=nsmbw::trusted_cpu::inspectSyntheticClock(1);
+ const nsmbw::trusted_cpu::CanonicalClockPlan plan{
+  baseline.ticks,0,60750000u,baseline.epoch,baseline.revision};
+ auto legacyTicket=nsmbw::trusted_cpu::leaseSynthetic(1);
+ expect(nsmbw::trusted_cpu::armCanonicalClock(
+    legacyTicket,entry,plan)==nsmbw::trusted_cpu::ClockArm::unsupportedPc,
+    "even authentic native Ticket cannot bypass private P20 quota via legacy clock arm");
+ auto pairTicket=nsmbw::trusted_cpu::leaseSynthetic(1);
+ expect(nsmbw::trusted_cpu::publishSyntheticPair(
+    pairTicket,entry,777)==nsmbw::trusted_cpu::Status::unsupported,
+    "legacy native GPR pair publisher cannot bypass P20 spent quota");
+#ifdef NSMB_PHASE18_CLOCK_TEST
+ expect(identicalGuest(afterCommit,capture(1)),
+    "attempted native legacy clock bypass left full CPU+ledger untouched");
+#endif
  expect(!spawn(1,rawId,UINT64_MAX),
   "duplicate new fixture cannot override existing guest or quota");
  expect(!retry(1,0xFFFFFFFFu,UINT64_MAX),
@@ -197,6 +214,37 @@ int main(){
  expect(nsmbw_loop_tick()==1 && nsmbw_loop_state(1)==4 &&
   clock(1)==60750000ULL&&nsmbw_loop_synthetic_service_quota(1)==0,
   "subsequent W04 checked memory fault does not tear clock/quota commit");
+#ifdef NSMB_PHASE18_CLOCK_TEST
+ nsmbw_loop_reset();
+ expect(spawn(1,nsId,1000000000ULL)&&
+  nsmbw::trusted_cpu::clockNativeTestSetExpectedPc(1,entry+4u),
+  "test-only fault injects wrong native expected PC after private ticket arm");
+ expect(nsmbw_loop_tick()==1 && nsmbw_loop_synthetic_service_quota(1)==1 &&
+  clock(1)==0 &&nsmbw_loop_clock_revision_lo(1)==0&&
+  nsmbw_loop_cpu_gpr(1,4)==input(1),
+  "wrong-PC dispatch aborted without quota/GPR/clock partial commit");
+ expect(retry(1,nsId,1000000000ULL)&&nsmbw_loop_tick()==1&&
+  nsmbw_loop_synthetic_service_quota(1)==0,
+  "wrong-PC aborted guest may use its ONE remaining valid private quota");
+ nsmbw_loop_reset();
+ expect(spawn(1,nsId,1000000000ULL)&&
+  nsmbw::trusted_cpu::clockNativeTestSetExpectedRevision(1,UINT64_MAX),
+  "test-only stale native revision after preparation");
+ expect(nsmbw_loop_tick()==1&&clock(1)==0&&
+  nsmbw_loop_clock_revision_lo(1)==0&&
+  nsmbw_loop_synthetic_service_quota(1)==1,
+  "wrong revision aborts without any CPU/clock/quota commit");
+ nsmbw_loop_reset();
+ expect(spawn(1,nsId,1000000000ULL)&&
+  nsmbw::trusted_cpu::clockNativeTestSetServiceQuota(1,0),
+  "test-only adversary drops private quota after valid W03 arm BEFORE dispatch");
+ expect(nsmbw_loop_tick()==1&&clock(1)==0&&
+  nsmbw_loop_cpu_gpr(1,4)==input(1)&&
+  nsmbw_loop_clock_revision_lo(1)==0&&
+  nsmbw_loop_clock_outcome(1)==8&&
+  nsmbw_loop_synthetic_service_quota(1)==0,
+  "REAL W03 tick REVALIDATES private quota0 and aborts with no half commit");
+#endif
  nsmbw_loop_reset();
  bool stress=true;
  for(unsigned i=0;i<256;++i){

@@ -27,6 +27,6 @@ test('real W03 typed service uses PRIVATE ticket+quota and SINGLE atomic ledger'
  assert.equal(c.status,0,c.stderr||c.error?.message);
  const run=spawnSync(output,[],{encoding:'utf8',timeout:18000});
  assert.equal(run.status,0,run.stderr||run.stdout||run.error?.message);
- assert.match(run.stdout,/TOTAL_CHECKS 39\s*$/);
- assert.equal((run.stdout.match(/^PASS /gm)||[]).length,39);
+ assert.match(run.stdout,/TOTAL_CHECKS 49\s*$/);
+ assert.equal((run.stdout.match(/^PASS /gm)||[]).length,49);
 });

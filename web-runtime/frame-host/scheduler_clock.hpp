@@ -72,6 +72,8 @@ ClockNativeTestSnapshot clockNativeTestSnapshot(uint32_t guest) noexcept;
 bool clockNativeTestSetRevision(uint32_t guest,uint64_t revision) noexcept;
 bool clockNativeTestSetExpectedRevision(uint32_t guest,uint64_t revision) noexcept;
 bool clockNativeTestSetExpectedPc(uint32_t guest,uint32_t expectedPc) noexcept;
+// TEST-ONLY private quota fault injection; NEVER built for normal Wasm/JS.
+bool clockNativeTestSetServiceQuota(uint32_t guest,uint32_t quota) noexcept;
 bool clockNativeTestExhaustSerial() noexcept;
 #endif
 }
