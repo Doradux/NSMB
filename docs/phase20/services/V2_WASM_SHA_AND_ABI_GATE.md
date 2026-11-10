@@ -103,3 +103,37 @@ NOT the superseded first-pass test artifact (2590B, sha0b492bce...);
 no false claims about the older artifact. Recompiled offline Docker
 fresh corrected Wasm to 2473B sha0812e471...; Node 4/4 and actual
 Chromium same SHA 256 numerical oracle checks PASS.
+
+## Independent Git object rebuild + physical Wasm tamper RED controls
+After fixing the denied service-ID payload, the exact V2 source and
+test wrapper were snapshotted from own committed Git SHA
+923cfcdc9c4e8797e675ad9d2d79fe7ad3332e02 via git archive
+to a fresh external /tmp source tree. Recompiled in the SAME cached
+Docker image, source bind READ-ONLY, output writable only in /tmp,
+no internet/pulls/sudo/privileged. The resulting actual Wasm file
+matched 0812e471fb3dd957a57406ac9b4c63ff5628438530368e6ab2533b82c39dc26e
+BIT-FOR-BIT with the first corrected fresh module, independently
+from an immutable Git object. Evidence:
+notes/Toad-P20-GitPinnedRebuild.log and original proof above.
+Final source commit after appending tests has IDENTICAL header/probe
+Git blob bytes; a new rebuild must pin any newer final Git SHA as
+well when used for integration.
+
+Additional tests/phase20/toad/artifact_integrity.test.mjs:
+two real standalone negative controls take the VALID, exact-SHA
+physical Wasm, copy it to /tmp and flip its last byte. This cannot
+pass the four Node SHA-pinned functional methods: their child Node
+test runner must exit NONZERO with four individual SHA failures
+(no SKIP). The same corrupted Wasm fed to the actual Chromium
+verifier must fail before starting Chrome, so browser startup itself
+is not a substitute for artifact identity.
+The inner Node process must NOT inherit the parent test runner's
+NODE_TEST_CONTEXT environment variable: inheriting it silently
+prevented nested Node test execution in the first version of this
+test harness, a TEST-HARNESS bug corrected by explicitly stripping
+that key before spawning child. After correction both independent
+adversarial checks PASS, 0 FAIL/ERROR/SKIP. Evidence:
+notes/Toad-P20-ArtifactIntegrityNode.log.
+
+This verifies SHA binding only and never grants W03 service permission,
+quota, native Ticket, original Nintendo Wii HLE or real guest source.
