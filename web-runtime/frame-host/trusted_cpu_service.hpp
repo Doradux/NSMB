@@ -21,7 +21,7 @@ class Ticket final {
   friend Ticket leaseSynthetic(uint32_t) noexcept;
   friend Status publishSyntheticPair(Ticket&,uint32_t,uint64_t) noexcept;
   friend ClockArm armSyntheticClock(Ticket&,uint32_t,uint64_t) noexcept;
-  friend ClockArm armClockInternal(Ticket&,uint32_t,const CanonicalClockPlan&,bool) noexcept;
+  friend ClockArm armClockInternal(Ticket&,uint32_t,const CanonicalClockPlan&,bool,bool) noexcept;
 #ifdef NSMB_PHASE16_TRUSTED_CPU_TEST
   friend Ticket forgeForNativeTest(uint32_t,uint64_t,uint64_t,uint64_t) noexcept;
 #endif
