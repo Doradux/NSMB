@@ -42,12 +42,26 @@ if [ "$actual" != "$image" ]; then
 fi
 head=$(git -C "$repo" rev-parse HEAD)
 printf 'SOURCE_GIT_SHA %s\nIMAGE_ID %s\n' "$head" "$image"
+# Linked Git worktrees store an ABSOLUTE gitdir outside their checkout.
+# Bind exactly the known shared metadata location READ-ONLY to make git
+# rev-parse/status work inside /work; never change host Git configuration.
+# This is required for the source manifest to finish, not for C++ itself.
+set -- -v "$repo:/work:ro"
+if [ -f "$repo/.git" ]; then
+  common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
+  case "$common" in
+    /home/marcos/NSMB/.git) ;;
+    *) echo 'DENY: unrecognized Git common metadata path' >&2;exit 65 ;;
+  esac
+  [ -d "$common" ] || { echo 'BLOCKED-ENV: linked Git metadata missing' >&2;exit 78; }
+  set -- "$@" -v "$common:$common:ro"
+fi
 # Container root has no writable host mounts except /tmp output; the
 # disposable writable container filesystem is needed for em++ cache.
 docker run --rm --pull never --network none --cpus=2 --memory=4g \
   -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory \
   -e GIT_CONFIG_VALUE_0=/work \
-  -v "$repo:/work:ro" -v "$physical:/output:rw" -w /work \
+  "$@" -v "$physical:/output:rw" -w /work \
   "$image" sh web-runtime/frame-host/rebuild_phase18_user.sh --build /output
 test -s "$physical/frame_loop.wasm"
 test -s "$physical/frame_loop.mjs"
