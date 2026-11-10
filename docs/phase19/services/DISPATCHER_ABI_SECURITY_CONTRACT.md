@@ -68,3 +68,36 @@ snapshot with REAL native private W03 Ticket but will NOT edit Peach
 source. A new WebAssembly of this helper only proves code generation;
 a functional new scheduler-owned Wasm in Node and Chromium needs Peach
 to publish its own bridge with hash-pinned output, not old dist/loader.
+
+## P19 native and explicit RED/GREEN evidence
+The first ABI smoke was deliberately RED before implementing the public
+header (compiler refused absent synthetic_service_dispatch.hpp). After
+implementation g++17 -O2 -Werror ABI GREEN; the test did not claim W03
+authority.
+
+Independent dispatcher_native.cpp now covers 107 labeled C++ checks
+including 4096 deterministic three-guest mixed adversarial read-only
+operations in ONE named check, not 4096 tests. Each denied Request
+returns an all-zero Candidate and has no bytewise change to Request or
+GateView. A fully forged request plus GateView CAN compute success,
+which is the critical negative proof that public origin and nonce echoes
+are NOT permissions.
+
+Native dispatcher_w03_native.cpp links real existing W03 scheduler
+frame_loop, guest_cpu, W04 guest_memory, W07 device_policy and the
+Phase18 timebase helper. Its 31 named checks include 512 successive
+real W03 native synthetic service commits and 1024 guest reset/recycle
+cycles. The private native one-use Ticket is REQUIRED before actual
+armCanonicalClock: a forged matching GateView always fails with
+ClockArm::invalidTicket; stale copies, wrong epoch/revision/high32
+fail without any GPR/PC/clock mutation. With test-only
+NSMB_PHASE18_CLOCK_TEST, full copied GPR/FPR/GQR/LR/PC/trace and clock
+are checked for unchanged data during failures. This is a REAL
+native W03 service transaction, NOT an exposed host C/JS dispatcher
+or new WebAssembly guest W03 service path.
+
+New Node wrapper runs C++ both with and without ASan+UBSan, checks
+actual labeled test counts and runs ELEVEN deliberately corrupted
+source-site variants of Toad and W03 in /tmp only, each RED while
+unmodified source GREEN. W03 mutations use exact cached source
+and are NOT committed to Peach's worktree.
