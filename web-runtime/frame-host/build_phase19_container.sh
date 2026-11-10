@@ -75,6 +75,12 @@ test -s "$physical/phase18_artifact_manifest.json"
   echo "Source_mount readonly"
   echo "Output_mount /tmp"
   echo "Emscripten compiler inside container see build_manifest.txt"
+  echo 'Compile_CXX_Flags -std=c++17 -O2 -Wall -Wextra'
+  echo 'Compile_EMCC_Flags -sWASM=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,node --no-entry -sALLOW_MEMORY_GROWTH=1 -sABORTING_MALLOC=0 -sFILESYSTEM=0'
+  echo "Build_Scripts_SHA256"
+  sha256sum "$here/rebuild_phase17_user.sh" \
+    "$here/rebuild_phase18_user.sh" \
+    "$here/build_phase19_container.sh"
   echo "Output_SHA256"
   sha256sum "$physical/frame_loop.wasm" "$physical/frame_loop.mjs"
 } > "$physical/phase19_build_info.txt"

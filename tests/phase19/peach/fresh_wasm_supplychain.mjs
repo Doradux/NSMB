@@ -76,6 +76,19 @@ validate('compilation-toolchain-version-forged',dir=>{
   const p=join(dir,'build_manifest.txt');
   writeFileSync(p,readFileSync(p,'utf8').replace('6.0.13','6.0.12'));
 });
+validate('compiler-flags-record-forged',dir=>{
+  const p=join(dir,'phase19_build_info.txt');
+  writeFileSync(p,readFileSync(p,'utf8')
+    .replace('Compile_CXX_Flags -std=c++17 -O2',
+             'Compile_CXX_Flags -std=c++17 -O0'));
+});
+validate('build-script-content-hash-forged',dir=>{
+  const p=join(dir,'phase19_build_info.txt');
+  const original=readFileSync(p,'utf8');
+  const m=original.match(/([0-9a-f]{64})  [^\n]*build_phase19_container\.sh/);
+  assert.ok(m,'expected exact build script SHA in output');
+  writeFileSync(p,original.replace(m[1],'0'.repeat(64)));
+});
 validate('compiler-source-input-SHA-forged',dir=>{
   const p=join(dir,'build_manifest.txt');
   const original=readFileSync(p,'utf8');
@@ -102,6 +115,6 @@ validate('unknown-network-import-in-Wasm',dir=>{
     'adversarial unknown import must remain valid binary for ABI test');
   writeFileSync(p,bytes);
 });
-assert.equal(controls,11);
-console.log('PHASE19_FRESH_ARTIFACT_SUPPLYCHAIN_RED_11_11_PASS');
+assert.equal(controls,13);
+console.log('PHASE19_FRESH_ARTIFACT_SUPPLYCHAIN_RED_13_13_PASS');
 console.log('IMPORTANT: self-generated hash manifest is not a trusted producer signature');

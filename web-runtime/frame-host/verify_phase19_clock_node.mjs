@@ -45,8 +45,19 @@ async function main(){
      !builtBy.includes('Image_ID '+expectedImage) ||
      !builtBy.includes('Network none') ||
      !builtBy.includes('Source_mount readonly') ||
+     !builtBy.includes('Compile_CXX_Flags -std=c++17 -O2 -Wall -Wextra') ||
+     !builtBy.includes('Compile_EMCC_Flags -sWASM=1 -sMODULARIZE=1 -sEXPORT_ES6=1') ||
      !builtBy.includes(wasmDigest)||!builtBy.includes(mjsDigest))
-    throw Error('BLOCKED-PROVENANCE: Docker build ID/source/digest mismatch');
+    throw Error('BLOCKED-PROVENANCE: Docker build ID/flags/source/digest mismatch');
+  for(const file of [
+    'web-runtime/frame-host/rebuild_phase17_user.sh',
+    'web-runtime/frame-host/rebuild_phase18_user.sh',
+    'web-runtime/frame-host/build_phase19_container.sh'
+  ]) {
+    const script=join(repo,file);
+    if(!builtBy.includes(sha(readFileSync(script))+'  '+script))
+      throw Error('BLOCKED-PROVENANCE: build script flags/source SHA mismatch '+file);
+  }
   const compilerLog=get('build_manifest.txt').toString('utf8');
   if(!compilerLog.includes('\n'+manifest.head+'\n') ||
      !compilerLog.includes('Emscripten')||

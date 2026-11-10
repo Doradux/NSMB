@@ -40,7 +40,18 @@ sh web-runtime/frame-host/build_phase19_container.sh --build "$out"
 
 Expected output `frame_loop.wasm`, `frame_loop.mjs`,
 `build_manifest.txt`, `phase18_artifact_manifest.json` and
-`phase19_build_info.txt`. The existing static verifier binds Git
+`phase19_build_info.txt`. The Phase19 build info also records the
+pinned image ID, offline/source-readonly constraints, declared compiler
+flags, and SHA-256 of all three public builder scripts; the C++ builder's
+own log records the actual Emscripten6.0.13 version and seven compiled
+input-file byte hashes. The Phase19 dynamic Node verifier requires these
+values to agree with the CURRENT clean Git working tree before calling
+any W03 export. Any changed image ID, build flags, source script hash,
+compiler version, C++ input hash, Wasm/MJS bytes or functional test count
+fails closed. Eleven original adversarial tamper tests plus two added
+flags/script-hash controls test these denials in throwaway /tmp copies.
+
+The existing static verifier binds Git
 source SHA, hashes of all public frame-host/Time64 input files, byte SHA
 of the Wasm/MJS and typed imports/exports. A self-generated manifest is
 NOT an independent signature of source->binary lineage or the C#
