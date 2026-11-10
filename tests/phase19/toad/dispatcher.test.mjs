@@ -174,3 +174,14 @@ test('pure header cannot issue a native ticket, publish CPU or second ledger',()
  assert.match(lines,/constexpr Result prepare/);
  assert.doesNotMatch(lines,/static\s+uint64_t\s+\w+\s*=/);
 });
+test('8 actual pthread workers 32768 pure service calls against same const view',t=>{
+ const dir=scratch(t,'threads');const binary=join(dir,'threads');
+ const cc=spawnSync('g++',['-std=c++17','-O2','-Wall','-Wextra',
+ '-Werror','-pedantic','-pthread','-I',include,
+ join(root,'tests/phase19/toad/dispatcher_concurrency_native.cpp'),
+ '-o',binary],{encoding:'utf8',timeout:40000});
+ assert.equal(cc.status,0,cc.stderr);
+ const r=run(binary);
+ assert.equal(r.status,0,r.stderr||r.stdout);
+ assert.match(r.stdout,/8_THREADS_32768_PURE_DISPATCHER_CALLS/);
+});

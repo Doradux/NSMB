@@ -101,3 +101,16 @@ actual labeled test counts and runs ELEVEN deliberately corrupted
 source-site variants of Toad and W03 in /tmp only, each RED while
 unmodified source GREEN. W03 mutations use exact cached source
 and are NOT committed to Peach's worktree.
+
+## Thread purity and diagnostic benchmark
+The stateless dispatcher can be called concurrently as a *numeric*
+function: 8 native pthread workers x4096 deterministic inputs =32768
+pure computations, sharing ONE const GateView, checked against an
+independent serial integer quotient/remainder oracle. This does NOT
+prove W03 scheduler thread-safety, nor does it mean the actual 32K
+operations are separate Node test methods.
+A local single-run g++ -O2 timing of 2,000,000 pure prepare calls on
+marcos-hpr: elapsed_host_ns=9354479, checksum=76963717532.
+It is a diagnostic elapsed measurement, not a performance guarantee,
+game tick timing or benchmark of original Nintendo execution.
+Native compiler and test driver under tests/phase19/toad.
