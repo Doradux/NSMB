@@ -45,8 +45,9 @@ async function main(){
   if(proof.schema!=='nsmb-phase19-real-W03-clock-proof-v1' ||
      proof.sourceHead!==manifest.head ||
      proof.wasmSha256!==expectedWasm ||proof.mjsSha256!==expectedMjs||
-     proof.oracleSha256!==expectedOracle ||proof.node?.checks<60 ||
-     proof.node?.stressCount!==1024)
+     proof.oracleSha256!==expectedOracle ||
+     proof.imageId!=='sha256:fb7864e398acfda863dfcea78b8bc8adad359fa60c6a0bbeb845931de64aa68a' ||
+     proof.node?.checks<60 ||proof.node?.stressCount!==1024)
     throw Error('BLOCKED-PROVENANCE: missing/mismatched Node DYNAMIC proof (not module load)');
   const page=`<!doctype html><meta charset="utf-8"><title>Phase19 W03 synthetic fresh Wasm</title>
 <script type="module">
