@@ -7,6 +7,12 @@
 #include "scheduler_clock.hpp"
 #include "../runtime-services/time64_pure_clock.hpp"
 #include "../runtime-services/synthetic_service_dispatch.hpp"
+#if defined(NSMB_P20_ENABLE_SERVICE_V2)
+#include "../runtime-services/synthetic_service_v2.hpp"
+#endif
+#if defined(NSMB_P20_ENABLE_TOY_LEAF)
+#include "../../scripts/phase20/luigi/toy_leaf_abi.hpp"
+#endif
 #if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE) || defined(NSMB_PHASE6_TRANSLATED_STORE_FIXTURE)
 extern "C" void func_80001000(CpuContext* ctx);
 #endif
@@ -52,6 +58,9 @@ struct Context {
   // W03-private P20 quota, never obtained from a public GateView.
   bool serviceFixture=false, clockServicePending=false;
   uint32_t serviceQuota=0, clockServiceId=0;
+  // Only in explicitly linked, invented PPC leaf fixture. No guest PPC HLE.
+  bool toyLeafPending=false;
+  uint32_t toyLeafEntry=0, toyLeafMaxSteps=0;
   nsmbw::trusted_cpu::ClockOutcome clockLast=nsmbw::trusted_cpu::ClockOutcome::none;
 };
 std::array<Context,CAPACITY> tasks{};
@@ -494,7 +503,7 @@ int EXPORT nsmbw_loop_suspend(uint32_t id) {
     t->clockPending=false;
     t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
   }
-  t->clockServicePending=false;
+  t->clockServicePending=false;t->toyLeafPending=false;
   t->state=PAUSED;return 1;
 }
 int EXPORT nsmbw_loop_resume(uint32_t id) {
@@ -512,7 +521,7 @@ int EXPORT nsmbw_loop_cancel(uint32_t id) {
     t->clockPending=false;
     t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
   }
-  t->clockServicePending=false;
+  t->clockServicePending=false;t->toyLeafPending=false;
   t->state=CANCELLED;return 1;
 }
 // Explicit cleanup: running/paused contexts cannot be destroyed behind a host frame.
@@ -558,6 +567,8 @@ int EXPORT nsmbw_loop_tick() {
       const uint64_t owner=t.clockOwner,epoch=t.clockEpoch;
       const bool serviceClock=t.clockServicePending;
       const uint32_t serviceId=t.clockServiceId;
+      const bool toyLeaf=t.toyLeafPending;
+      t.toyLeafPending=false; // one W03 toy dispatch opportunity only
       t.clockPending=false; // one dispatch consumes one prepared command
       t.clockServicePending=false; // consume staged service tag
       if(t.kind!=1 || t.serviceOwner!=owner || !owner ||
@@ -589,6 +600,37 @@ int EXPORT nsmbw_loop_tick() {
         t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedQuota;
         return static_cast<int>(t.id);
       }
+#if defined(NSMB_P20_ENABLE_TOY_LEAF) && defined(NSMB_P20_ENABLE_SERVICE_V2)
+      // Invented PPC-Lite translated C++ actually RUNS inside W03 dispatch,
+      // but only computes an UNTRUSTED proposed value. Validate it BEFORE
+      // the single no-fail native GPR+clock+quota commit below.
+      nsmbw::p20::toy::Result leafResult{};
+      if(toyLeaf) {
+        if(!serviceClock ||
+           serviceId!=static_cast<uint32_t>(
+             nsmbw::p19::services::ServiceId::rawClockFromTicks)) {
+          t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedQuota;
+          return static_cast<int>(t.id);
+        }
+        const nsmbw::p20::toy::Input leafInput{
+          t.toyLeafEntry,SyntheticCpu::Entry,t.cpu.gpr[3],
+          t.cpu.lr,t.cpu.gpr[1],t.toyLeafMaxSteps};
+        leafResult=nsmbw::p20::toy::evaluate(leafInput);
+        if(!leafResult.computed() ||leafResult.steps==0||
+           leafResult.returnPc!=SyntheticCpu::Entry+4u||
+           leafResult.gpr3!=ticks ||
+           leafResult.steps>UINT32_MAX-t.cpu.steps) {
+          t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedQuota;
+          return static_cast<int>(t.id);
+        }
+      }
+#else
+      // A toy event cannot exist in a non-PEER-linked normal W03 build.
+      if(toyLeaf) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedQuota;
+        return static_cast<int>(t.id);
+      }
+#endif
       serviceExecuting=true;
       // This is a single-threaded, non-reentrant LOCAL native transaction:
       // there are NO callbacks, allocations or fallible operations between
@@ -598,6 +640,13 @@ int EXPORT nsmbw_loop_tick() {
       t.clockTicks=ticks;
       ++t.clockRevision; // SAME in-dispatch, no-fail W03 canonical commit
       if(serviceClock)--t.serviceQuota; // SAME atomic no-fallible commit
+#if defined(NSMB_P20_ENABLE_TOY_LEAF) && defined(NSMB_P20_ENABLE_SERVICE_V2)
+      if(toyLeaf) {
+        t.cpu.pc=leafResult.returnPc;
+        t.cpu.lr=leafResult.lr;
+        t.cpu.steps+=leafResult.steps;
+      }
+#endif
       t.clockCommitted=true;
       t.clockLast=nsmbw::trusted_cpu::ClockOutcome::committed;
       serviceExecuting=false;

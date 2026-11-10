@@ -149,7 +149,7 @@ import {runPrivateServiceFixture} from '/private_service_oracle.mjs';
       'checks',result.checks,'stress',result.stressCount,
       'source',manifest.head);
     console.log('PHASE20_BROWSER_INIT_MS',result.initMs.toFixed(3),
-      'STRESS_MS',result.stressElapsedMs.toFixed(3));
+      'STRESS_MS',result.stressMs.toFixed(3));
     console.log('PHASE20_NOT_ORIGINAL_WII_CODE_NOT_NINTENDO_HLE');
   }finally {
     cdp?.close()??socket?.close();
