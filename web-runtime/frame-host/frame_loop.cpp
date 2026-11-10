@@ -5,6 +5,7 @@
 #include "guest_cpu.hpp"
 #include "trusted_cpu_service.hpp"
 #include "scheduler_clock.hpp"
+#include "../runtime-services/time64_pure_clock.hpp"
 #if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE) || defined(NSMB_PHASE6_TRANSLATED_STORE_FIXTURE)
 extern "C" void func_80001000(CpuContext* ctx);
 #endif
@@ -339,6 +340,40 @@ int EXPORT nsmbw_loop_cpu_spawn(uint32_t id,uint32_t entry,uint32_t stackTop,
   }
   lastError=2;return 0;
 }
+// PHASE19 public synthetic-only exerciser. This C entrypoint does NOT grant
+// authority over any existing guest or accept an external Ticket/CpuContext*.
+// It creates ONE fresh synthetic fixture at the only allowlisted PC, mints a
+// private native ticket inside W03, obtains a PURE Toad Time64 value and
+// leaves its publication to the next real W03 scheduler tick. The caller's
+// nanoseconds are untrusted TEST FIXTURE DATA, not an authentic Wii clock.
+int EXPORT nsmbw_loop_synthetic_clock_fixture_spawn(uint32_t id,
+ uint32_t stackTop,uint32_t inputGuest,uint32_t outputGuest,uint32_t salt,
+ uint32_t nanosHigh,uint32_t nanosLow) {
+  if(dispatching || serviceExecuting){lastError=8;return 0;}
+  const uint64_t nanos=(uint64_t(nanosHigh)<<32)|nanosLow;
+  const nsmbw::time64_pure::Reference source{0,0,serviceEpoch,0,false};
+  const auto prepared=nsmbw::time64_pure::prepareFromNanos(
+    nanos,source,serviceEpoch,0);
+  if(!prepared.ok()){lastError=8;return 0;}
+  // No caller-supplied entry or PC: a new copyright-free W03 kind1 only.
+  if(!nsmbw_loop_cpu_spawn(id,SyntheticCpu::Entry,stackTop,
+                           inputGuest,outputGuest,salt))return 0;
+  auto ticket=nsmbw::trusted_cpu::leaseSynthetic(id);
+  const auto candidate=prepared.candidate;
+  const nsmbw::trusted_cpu::CanonicalClockPlan plan{
+    candidate.rawTicks,candidate.high32,candidate.low32,
+    candidate.sourceEpoch,candidate.sourceRevision};
+  const auto status=nsmbw::trusted_cpu::armCanonicalClock(
+    ticket,SyntheticCpu::Entry,plan);
+  if(status!=nsmbw::trusted_cpu::ClockArm::accepted) {
+    // No CPU/register/ledger publication has happened. The newly created
+    // private fixture can be discarded without touching any other guest.
+    auto* created=find(id);
+    if(created) *created=Context{};
+    lastError=8;return 0;
+  }
+  return 1;
+}
 // Source-translator ABI-shaped initialization. The actual compiler emits
 // extern "C" void f(CpuContext*), not a direct integer function. These
 // initializer values are per-context, not global persistent Wii state.
@@ -652,6 +687,28 @@ int EXPORT nsmbw_loop_frame(uint32_t budget) {
 uint32_t EXPORT nsmbw_loop_state(uint32_t id) {auto*t=find(id);return t?t->state:0;}
 uint32_t EXPORT nsmbw_loop_pc(uint32_t id) {auto*t=find(id);return t?(t->kind!=0?t->cpu.pc:t->pc):0;}
 uint32_t EXPORT nsmbw_loop_cpu_steps(uint32_t id) {auto*t=find(id);return t&&t->kind!=0?t->cpu.steps:0;}
+// Read-only BY-VALUE public observations of a synthetic W03 clock. No
+// writable ledger, host service issuer, pointer, guest PC override or HLE.
+uint32_t EXPORT nsmbw_loop_clock_ticks_hi(uint32_t id) {
+  const auto*t=find(id);return t&&t->kind==1?uint32_t(t->clockTicks>>32):0;
+}
+uint32_t EXPORT nsmbw_loop_clock_ticks_lo(uint32_t id) {
+  const auto*t=find(id);return t&&t->kind==1?uint32_t(t->clockTicks):0;
+}
+uint32_t EXPORT nsmbw_loop_clock_revision_hi(uint32_t id) {
+  const auto*t=find(id);return t&&t->kind==1?uint32_t(t->clockRevision>>32):0;
+}
+uint32_t EXPORT nsmbw_loop_clock_revision_lo(uint32_t id) {
+  const auto*t=find(id);return t&&t->kind==1?uint32_t(t->clockRevision):0;
+}
+uint32_t EXPORT nsmbw_loop_clock_pending(uint32_t id) {
+  const auto*t=find(id);return t&&t->kind==1&&t->clockPending?1u:0u;
+}
+uint32_t EXPORT nsmbw_loop_clock_outcome(uint32_t id) {
+  const auto*t=find(id);
+  return t&&t->kind==1?uint32_t(t->clockLast):0;
+}
+
 uint32_t EXPORT nsmbw_loop_cpu_gpr(uint32_t id,uint32_t index) {
   auto*t=find(id);return t&&t->kind!=0&&index<32?t->cpu.gpr[index]:0;
 }
