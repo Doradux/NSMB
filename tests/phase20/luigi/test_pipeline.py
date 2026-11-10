@@ -144,6 +144,18 @@ class PhysicalNewWasm(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'symlink'):
             self.verify(p)
 
+    def test_forged_node_or_browser_js_pin_denied(self):
+        original=json.loads((self.pkg/'manifest.json').read_text())
+        for key in ('scripts/phase20/luigi/verify_wasm.mjs',
+                    'scripts/phase20/luigi/verify_browser.mjs'):
+            p=self.copy()
+            m=json.loads((p/'manifest.json').read_text())
+            self.assertEqual(m['codePins'][key],original['codePins'][key])
+            m['codePins'][key]='0'*64
+            (p/'manifest.json').write_text(json.dumps(m))
+            with self.assertRaisesRegex(ValueError,'producer/JS/oracle'):
+                self.verify(p,sha=self.repin(p))
+
     def test_forged_abi_or_compiler_image_denied(self):
         p=self.copy()
         m=json.loads((p/'manifest.json').read_bytes())

@@ -4,6 +4,7 @@
 #include "../../../scripts/phase20/luigi/toy_leaf_abi.hpp"
 #include "../../../web-runtime/frame-host/scheduler_clock.hpp"
 #include "../../../web-runtime/frame-host/trusted_cpu_service.hpp"
+#include "synthetic_service_v2.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -54,9 +55,39 @@ int main(){
         "actual generated invented PPC leaf computes one candidate");
   check(nsmbw_loop_cpu_gpr(1,3)==before.cpu.gpr[3]&&ticks(1)==0u,
         "pure leaf does not mutate W03 CPU or clock");
+  // Toad V2 is a SOURCE-PINNED PURE candidate. Public claimed origin,
+  // budget, epoch and PC are forgeable, not trusted W03 authorization.
+  using namespace nsmbw::p20::services;
+  RequestV2 request{};
+  request.version=kAbiVersion;
+  request.service=ServiceId::rawClockFromTicks;
+  request.slot=1u;request.expectedPc=Entry;
+  request.epoch=before.clock.epoch;
+  request.revision=before.clock.revision;
+  request.value=leaf.gpr3;
+  ViewV2 view{};
+  view.slot=1u;view.currentPc=Entry;view.epoch=before.clock.epoch;
+  view.revision=before.clock.revision;view.claimedBudget=1u;
+  view.origin=OriginClaim::nativeScheduler;
+  view.phase=PhaseClaim::ready;view.enabled=true;
+  view.guestReady=true;
+  const auto publicValue=compute(request,view);
+  check(publicValue.computed()&&consistent(publicValue.candidate)&&
+        publicValue.candidate.rawTicks==leaf.gpr3&&
+        publicValue.candidate.proposedCost==1u,
+        "real Toad V2 PURE candidate computed from generated leaf result");
+  const CanonicalClockPlan plan{
+      publicValue.candidate.rawTicks,publicValue.candidate.high32,
+      publicValue.candidate.low32,publicValue.candidate.sourceEpoch,
+      publicValue.candidate.sourceRevision};
+  Ticket emptyPublicTicket{};
+  check(armCanonicalClock(emptyPublicTicket,Entry,plan)==ClockArm::invalidTicket,
+        "forged nativeScheduler/claimedBudget cannot manufacture W03 Ticket");
+  request.service=static_cast<ServiceId>(0xFFFFFFFFu);
+  check(!compute(request,view).computed(),
+        "unknown ServiceId denied by actual Toad V2 allowlist");
+  request.service=ServiceId::rawClockFromTicks;
   auto denied=leaseSynthetic(1);
-  CanonicalClockPlan plan{uint64_t(leaf.gpr3),0u,leaf.gpr3,
-      before.clock.epoch,before.clock.revision};
   check(armCanonicalClock(denied,Entry+4u,plan)==ClockArm::wrongPc,
         "native W03 private ticket rejects false expected PC");
   check(armCanonicalClock(denied,Entry,plan)==ClockArm::invalidTicket,

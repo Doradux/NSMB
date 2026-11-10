@@ -6,6 +6,7 @@ from pathlib import Path
 import os,subprocess,tempfile,unittest
 
 ROOT=Path(__file__).resolve().parents[3]
+TOAD_SHA='4b4151b0f25027b85f5f15fb205a7fad1631c6d0'
 FILES=[
  "tests/phase20/luigi/leaf_w03_bridge_native.cpp",
  "scripts/phase20/luigi/toy_leaf_generated.cpp",
@@ -25,7 +26,15 @@ class NativeW03Intermediate(unittest.TestCase):
             binary=Path(t)/"w03"
             env=os.environ.copy();env.pop("LD_LIBRARY_PATH",None)
             env.pop("LD_PRELOAD",None)
-            cmd=["g++","-std=c++17","-O1","-g","-Wall","-Wextra",
+            # Read-only git archive of the PEER'S exact commit, not their
+            # mutable checkout. W03 authority still stays in native host.
+            header=Path(t)/"synthetic_service_v2.hpp"
+            snap=subprocess.run(["git","show",
+                TOAD_SHA+":web-runtime/runtime-services/synthetic_service_v2.hpp"],
+                cwd=ROOT,capture_output=True,timeout=9,check=True)
+            header.write_bytes(snap.stdout)
+            cmd=["g++","-I",t,"-I",str(ROOT/"web-runtime/runtime-services"),
+                 "-std=c++17","-O1","-g","-Wall","-Wextra",
                  "-Werror","-pedantic","-fsanitize=address,undefined",
                  "-fno-omit-frame-pointer","-DNSMB_PHASE18_CLOCK_TEST",
                  *[str(ROOT/p) for p in FILES],"-o",str(binary)]
@@ -36,7 +45,7 @@ class NativeW03Intermediate(unittest.TestCase):
             r=subprocess.run([str(binary)],env=env,capture_output=True,text=True,timeout=25)
             self.assertEqual(r.returncode,0,r.stderr[-1600:])
             self.assertIn("128 real W03 resets",r.stdout)
-            self.assertIn("TOTAL_CHECKS 18",r.stdout)
+            self.assertIn("TOTAL_CHECKS 21",r.stdout)
             self.assertEqual(r.stderr,"")
 
 

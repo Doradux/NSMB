@@ -21,6 +21,15 @@ from .vectors import vectors
 IMAGE="sha256:fb7864e398acfda863dfcea78b8bc8adad359fa60c6a0bbeb845931de64aa68a"
 FMT="nsmb-p20-ppc-lite-cpp-standalone-lineage-v1"
 ROOT=Path(__file__).resolve().parents[3]
+CODE_PINS=(
+ "scripts/phase20/luigi/abi.py",
+ "scripts/phase20/luigi/render.py",
+ "scripts/phase20/luigi/producer.py",
+ "scripts/phase20/luigi/witness.py",
+ "scripts/phase20/luigi/pipeline.py",
+ "scripts/phase20/luigi/verify_wasm.mjs",
+ "scripts/phase20/luigi/verify_browser.mjs"
+)
 COMPILER_FLAGS=["-std=c++17","-O2","-s","STANDALONE_WASM=1",
                 "--no-entry","-Wl,--export=nsmb_p20_leaf_probe",
                 "-Wl,--export=nsmb_p20_leaf_source_tag"]
@@ -125,6 +134,7 @@ def create_package(dest:Path)->dict:
         "format":FMT,"version":1,"runNonce":nonce,
         "git":{"head":head,"tree":tree},
         "source":provenance(),
+        "codePins":{key:sha((ROOT/key).read_bytes()) for key in CODE_PINS},
         "files":{name:{"sha256":sha(safe(dest,name)),"bytes":len(safe(dest,name))}
                  for name in ARTIFACTS},
         "compiler":{"imageDigest":IMAGE,"sourceMount":"read-only",
@@ -163,7 +173,7 @@ def verify_package(root:Path,expected_manifest_sha:str,
     except (ValueError,UnicodeError) as exc:
         raise ValueError("invalid canonical manifest") from exc
     if type(data) is not dict or set(data)!={
-        "format","version","runNonce","git","source","files",
+        "format","version","runNonce","git","source","codePins","files",
         "compiler","abi","producerAttested","authenticReleaseEligible",
         "realW03SchedulerInvoked"
     } or data["format"]!=FMT or type(data["version"]) is not int or data["version"]!=1:
@@ -178,6 +188,8 @@ def verify_package(root:Path,expected_manifest_sha:str,
         raise ValueError("Git source SHA fields invalid")
     if data["source"]!=provenance():
         raise ValueError("invented source metadata differs from independent decoder")
+    if type(data["codePins"]) is not dict or data["codePins"]!={key:sha((ROOT/key).read_bytes()) for key in CODE_PINS}:
+        raise ValueError("producer/JS/oracle code SHA pins do not match physical source")
     if type(data["files"]) is not dict or set(data["files"])!=set(ARTIFACTS):
         raise ValueError("manifest physical inventory mismatch")
     for folder in ("leaf","native","wasm"):
