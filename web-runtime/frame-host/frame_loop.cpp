@@ -6,6 +6,7 @@
 #include "trusted_cpu_service.hpp"
 #include "scheduler_clock.hpp"
 #include "../runtime-services/time64_pure_clock.hpp"
+#include "../runtime-services/synthetic_service_dispatch.hpp"
 #if defined(NSMB_PHASE5_TRANSLATED_FIXTURE) || defined(NSMB_PHASE5_TRANSLATED_LOAD_FIXTURE) || defined(NSMB_PHASE6_TRANSLATED_STORE_FIXTURE)
 extern "C" void func_80001000(CpuContext* ctx);
 #endif
@@ -48,6 +49,9 @@ struct Context {
   uint64_t clockEpoch=0, clockOwner=0, clockCandidate=0, clockTicks=0;
   // PHASE18: W03 alone owns canonical time version and ledger.
   uint64_t clockRevision=0, clockExpectedRevision=0;
+  // W03-private P20 quota, never obtained from a public GateView.
+  bool serviceFixture=false, clockServicePending=false;
+  uint32_t serviceQuota=0, clockServiceId=0;
   nsmbw::trusted_cpu::ClockOutcome clockLast=nsmbw::trusted_cpu::ClockOutcome::none;
 };
 std::array<Context,CAPACITY> tasks{};
@@ -157,6 +161,8 @@ Status publishSyntheticPair(Ticket& ticket,uint32_t expectedPc,
   if(busy)return Status::executing;
   if(!authorized)return Status::stale;
   if(t->state!=READY || t->kind!=1)return Status::notReady;
+  // A native caller with a valid private Ticket may NOT bypass P20 quota.
+  if(t->serviceFixture)return Status::unsupported;
   if(t->cpu.pc!=expectedPc)return Status::pcMismatch;
   serviceExecuting=true;
   // No checked memory/device calls. Exactly two GPR writes in one native
@@ -170,7 +176,8 @@ Status publishSyntheticPair(Ticket& ticket,uint32_t expectedPc,
 // commit the synthetic clock ledger; the actual W03 tick owns COMMIT.
 ClockArm armClockInternal(Ticket& ticket,uint32_t expectedPc,
                           const CanonicalClockPlan& plan,
-                          bool requireSourceRevision) noexcept {
+                          bool requireSourceRevision,
+                          bool phase20Service) noexcept {
   const uint64_t proposedTicks=plan.rawTicks;
   const uint64_t offered=ticket.serial_;
   ticket.serial_ = 0u; // all attempts consume the caller's private lease
@@ -185,6 +192,10 @@ ClockArm armClockInternal(Ticket& ticket,uint32_t expectedPc,
   if(busy)return ClockArm::dispatchBusy;
   if(!authorized)return ClockArm::stale;
   if(t->state!=READY || t->kind!=1)return ClockArm::notReady;
+  // Only W03 native phase20Stage can request service mode; ordinary native
+  // armCanonicalClock cannot bypass quota on service-fixture guests.
+  if(t->serviceFixture!=phase20Service)return ClockArm::unsupportedPc;
+  if(phase20Service && t->serviceQuota==0)return ClockArm::quotaExhausted;
   if(t->clockPending)return ClockArm::alreadyPending;
   if(t->cpu.pc!=expectedPc)return ClockArm::wrongPc;
   // Deliberately small allowlist: only a declared synthetic instruction PC.
@@ -209,6 +220,7 @@ ClockArm armClockInternal(Ticket& ticket,uint32_t expectedPc,
   t->clockExpectedPc=expectedPc;
   t->clockCandidate=proposedTicks;
   t->clockExpectedRevision=t->clockRevision;
+  t->clockServicePending=phase20Service; // NO debit during prepare
   return ClockArm::accepted;
 }
 ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
@@ -216,11 +228,11 @@ ClockArm armSyntheticClock(Ticket& ticket,uint32_t expectedPc,
   const CanonicalClockPlan candidate{
     proposedTicks,static_cast<uint32_t>(proposedTicks>>32u),
     static_cast<uint32_t>(proposedTicks),0,0};
-  return armClockInternal(ticket,expectedPc,candidate,false);
+  return armClockInternal(ticket,expectedPc,candidate,false,false);
 }
 ClockArm armCanonicalClock(Ticket& ticket,uint32_t expectedPc,
                            const CanonicalClockPlan& candidate) noexcept {
-  return armClockInternal(ticket,expectedPc,candidate,true);
+  return armClockInternal(ticket,expectedPc,candidate,true,false);
 }
 ClockSnapshot inspectSyntheticClock(uint32_t guest) noexcept {
   const auto* t=find(guest);
@@ -374,6 +386,7 @@ int EXPORT nsmbw_loop_synthetic_clock_fixture_spawn(uint32_t id,
   }
   return 1;
 }
+#include "phase20_service_fixture.inc"
 // Source-translator ABI-shaped initialization. The actual compiler emits
 // extern "C" void f(CpuContext*), not a direct integer function. These
 // initializer values are per-context, not global persistent Wii state.
@@ -481,6 +494,7 @@ int EXPORT nsmbw_loop_suspend(uint32_t id) {
     t->clockPending=false;
     t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
   }
+  t->clockServicePending=false;
   t->state=PAUSED;return 1;
 }
 int EXPORT nsmbw_loop_resume(uint32_t id) {
@@ -498,6 +512,7 @@ int EXPORT nsmbw_loop_cancel(uint32_t id) {
     t->clockPending=false;
     t->clockLast=nsmbw::trusted_cpu::ClockOutcome::cancelled;
   }
+  t->clockServicePending=false;
   t->state=CANCELLED;return 1;
 }
 // Explicit cleanup: running/paused contexts cannot be destroyed behind a host frame.
@@ -541,7 +556,10 @@ int EXPORT nsmbw_loop_tick() {
       const uint64_t ticks=t.clockCandidate;
       const uint32_t expected=t.clockExpectedPc;
       const uint64_t owner=t.clockOwner,epoch=t.clockEpoch;
+      const bool serviceClock=t.clockServicePending;
+      const uint32_t serviceId=t.clockServiceId;
       t.clockPending=false; // one dispatch consumes one prepared command
+      t.clockServicePending=false; // consume staged service tag
       if(t.kind!=1 || t.serviceOwner!=owner || !owner ||
          epoch!=serviceEpoch || serviceExhausted) {
         t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedStale;
@@ -563,6 +581,14 @@ int EXPORT nsmbw_loop_tick() {
         t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedRegression;
         return static_cast<int>(t.id);
       }
+      // Private W03 quota/ID preflight; public GateView cannot fake it.
+      if(t.serviceFixture!=serviceClock ||
+         (serviceClock && (t.serviceQuota==0 ||
+           !nsmbw::p19::services::isAllowlisted(
+             static_cast<nsmbw::p19::services::ServiceId>(serviceId))))) {
+        t.clockLast=nsmbw::trusted_cpu::ClockOutcome::abortedQuota;
+        return static_cast<int>(t.id);
+      }
       serviceExecuting=true;
       // This is a single-threaded, non-reentrant LOCAL native transaction:
       // there are NO callbacks, allocations or fallible operations between
@@ -571,6 +597,7 @@ int EXPORT nsmbw_loop_tick() {
       t.cpu.gpr[4]=static_cast<uint32_t>(ticks);
       t.clockTicks=ticks;
       ++t.clockRevision; // SAME in-dispatch, no-fail W03 canonical commit
+      if(serviceClock)--t.serviceQuota; // SAME atomic no-fallible commit
       t.clockCommitted=true;
       t.clockLast=nsmbw::trusted_cpu::ClockOutcome::committed;
       serviceExecuting=false;

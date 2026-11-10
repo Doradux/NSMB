@@ -14,12 +14,13 @@ namespace nsmbw::trusted_cpu {
 enum class ClockArm : uint32_t {
   accepted=0, invalidTicket=1, stale=2, notReady=3, wrongPc=4,
   dispatchBusy=5, alreadyPending=6, regression=7, unsupportedPc=8,
-  epochMismatch=9, staleRevision=10, badPair=11, revisionExhausted=12
+  epochMismatch=9, staleRevision=10, badPair=11, revisionExhausted=12,
+  quotaExhausted=13
 };
 enum class ClockOutcome : uint32_t {
   none=0, committed=1, abortedStale=2, abortedPc=3,
   abortedRegression=4, cancelled=5, abortedRevision=6,
-  abortedOverflow=7
+  abortedOverflow=7, abortedQuota=8
 };
 struct ClockSnapshot {
   bool guestExists=false;
