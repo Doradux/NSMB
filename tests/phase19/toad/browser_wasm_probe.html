@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>P19 Toad pure service test-only</title>
+<script type="module">
+(async () => {
+try {
+ const response=await fetch('/toad_p19_probe.wasm',{cache:'no-store'});
+ if(!response.ok)throw Error('Wasm HTTP '+response.status);
+ const bytes=new Uint8Array(await response.arrayBuffer());
+ const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))
+   .map(x=>x.toString(16).padStart(2,'0')).join('');
+ if(!WebAssembly.validate(bytes))throw Error('Browser Wasm.validate rejected');
+ const mod=new WebAssembly.Module(bytes);
+ if(WebAssembly.Module.imports(mod).length!==0)throw Error('unexpected imports');
+ const exports=WebAssembly.Module.exports(mod).map(x=>x.name);
+ if(exports.some(n=>/Ticket|armCanonicalClock|CpuContext|OSGetTime|leaseSynthetic|nsmbw_loop_/.test(n)))
+   throw Error('W03 native capability exported');
+ const e=(await WebAssembly.instantiate(mod,{})).exports;
+ const valid=e.nsmbw_p19_test_only_status(1,0x53560001,1000000000n,1,1);
+ const ticks=e.nsmbw_p19_test_only_ticks(1,0x53560001,1000000000n,1,1);
+ if(valid!==0||ticks!==60750000n)throw Error('browser 1sec candidate wrong');
+ if(e.nsmbw_p19_test_only_high32(1,0x53560002,4294967296n,1,1)!==1||
+    e.nsmbw_p19_test_only_low32(1,0x53560002,4294967296n,1,1)!==0)
+   throw Error('browser 2^32 carry wrong');
+ for(const origin of [0,2,3,4,5]){
+   if(e.nsmbw_p19_test_only_status(1,0x53560001,1000000000n,origin,1)!==7||
+      e.nsmbw_p19_test_only_ticks(1,0x53560001,1000000000n,origin,1)!==0n)
+     throw Error('browser forbidden origin accepted');
+ }
+ if(e.nsmbw_p19_test_only_status(1,0x12345678,1000000000n,1,1)!==1||
+    e.nsmbw_p19_test_only_status(2,0x53560001,1000000000n,1,1)!==2||
+    e.nsmbw_p19_test_only_status(1,0x53560001,1000000000n,1,0)!==9)
+   throw Error('browser unknown ID/version/quota accepted');
+ let state=0x123456789abcdefn;
+ const MAX=(1n<<64n)-1n;
+ for(let i=0;i<256;i++){
+   state=(state*6364136223846793005n+1442695040888963407n)&MAX;
+   const expect=(state/4000n)*243n+((state%4000n)*243n)/4000n;
+   if(e.nsmbw_p19_test_only_ticks(1,0x53560001,state,1,1)!==expect)
+     throw Error('browser timebase incorrect index '+i);
+ }
+ window.__toad19={status:'pass',sha,oneSecondTicks:String(ticks),
+   browserCases:256,imports:0,functions:exports.length,neverNativeW03:true};
+} catch(e) {
+ window.__toad19={status:'fail',error:String(e?.stack||e)};
+}
+})();
+</script>
