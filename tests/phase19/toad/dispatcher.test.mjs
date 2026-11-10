@@ -185,3 +185,32 @@ test('8 actual pthread workers 32768 pure service calls against same const view'
  assert.equal(r.status,0,r.stderr||r.stdout);
  assert.match(r.stdout,/8_THREADS_32768_PURE_DISPATCHER_CALLS/);
 });
+test('RED pure dispatcher enabled flag must deny disabled services',t=>{
+ red(t,'disabled',service,
+  'if(!view.enabled)return deny(Status::disabled);',
+  'if(false)return deny(Status::disabled);',/FAIL disabled/);
+});
+test('RED pure busy state must deny reentrant request',t=>{
+ red(t,'busy',service,
+  'if(view.dispatchBusy)return deny(Status::dispatchBusy);',
+  'if(false)return deny(Status::dispatchBusy);',/FAIL busy reentry/);
+});
+test('RED actual W03 canonical tick ledger must change with native GPR pair',t=>{
+ red(t,'w03-ledger',sources[0],
+  't.clockTicks=ticks;',
+  't.clockTicks=t.clockTicks;',
+  /FAIL W03 SINGLE canonical ledger committed/);
+});
+test('RED actual W03 revision increments exactly once at commit',t=>{
+ red(t,'w03-advance',sources[0],
+  '++t.clockRevision; // SAME in-dispatch, no-fail W03 canonical commit',
+  't.clockRevision+=0; // mutation removes canonical increment',
+  /FAIL W03 SINGLE canonical ledger committed/);
+});
+test('strict synthetic C++ struct size/offset ABI, GCC g++ -Wconversion',t=>{
+ const dir=scratch(t,'layout');const {cc,output}=compile(dir,{
+  cpp:join(root,'tests/phase19/toad/dispatcher_layout_native.cpp')});
+ assert.equal(cc.status,0,cc.stderr);
+ const result=run(output);
+ assert.equal(result.status,0,result.stderr);
+});

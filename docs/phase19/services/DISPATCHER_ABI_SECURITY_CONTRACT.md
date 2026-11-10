@@ -114,3 +114,26 @@ marcos-hpr: elapsed_host_ns=9354479, checksum=76963717532.
 It is a diagnostic elapsed measurement, not a performance guarantee,
 game tick timing or benchmark of original Nintendo execution.
 Native compiler and test driver under tests/phase19/toad.
+
+## ABI byte layout, GCC + WebAssembly compiler
+A separate strict C++17 layout fixture confirms both marcos-hpr GCC
+and the cached Emscripten 6.0.13 frontend agree under -Werror,
+-Wconversion and -Wsign-conversion:
+Request sizeof48 align8 value offset40; GateView sizeof56 align8;
+Candidate sizeof56 align8 ticks offset40, high32 offset48,
+low32 offset52; Result sizeof64 align8. All enums underlying sizes are
+explicit UINT32 or UINT8. The tested layout is SYNTHETIC host/Wasm
+ABI only, not PPC/Wii original ABI. Pointers are forbidden; boolean
+values in GateView remain internally interpreted C++ only and are not
+copied across JS as trusted bytes. Such layout agreement does not
+imply W03 private Ticket export or real Wii service compatibility.
+
+## Latest reinforced native source mutations
+Two additional RED controls prove W03 native must update the one
+clockTicks ledger and increment exactly one clockRevision in the SAME
+callback-free synthetic scheduler commit; removing either operation
+from an isolated source copy makes the 31-check real W03 test fail.
+Further RED controls remove dispatcher enabled/busy safeguards and the
+native tests reject compromised behavior as expected.
+These tests do not mutate a peer Git tree and cannot prove genuine Wii
+HLE, author DOL authenticity, C# producer lineage or new browser W03.
