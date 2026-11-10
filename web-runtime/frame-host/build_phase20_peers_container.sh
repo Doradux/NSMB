@@ -97,7 +97,7 @@ test -s "$out/frame_loop.mjs"
  echo 'Output_SHA256'
  sha256sum "$out/frame_loop.wasm" "$out/frame_loop.mjs"
 } >> "$out/phase20_three_sha_build_manifest.txt"
-node --input-type=module - "$out/frame_loop.wasm" <<'JS'
+env -u LD_LIBRARY_PATH -u LD_PRELOAD node --input-type=module - "$out/frame_loop.wasm" <<'JS'
 import {readFileSync} from 'node:fs';
 const m=new WebAssembly.Module(readFileSync(process.argv[2]));
 const imports=WebAssembly.Module.imports(m);
