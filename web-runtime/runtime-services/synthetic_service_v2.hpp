@@ -48,7 +48,8 @@ struct ViewV2 final {
 };
 struct CandidateV2 final {
  uint32_t version=0;
- ServiceId service=ServiceId::rawClockFromNanoseconds;
+ // DENIAL must be zero in EVERY byte-valued public numeric field.
+ ServiceId service=static_cast<ServiceId>(0u);
  uint32_t slot=0,expectedPc=0;
  uint64_t sourceEpoch=0,sourceRevision=0,rawTicks=0;
  uint32_t high32=0,low32=0,proposedCost=0;

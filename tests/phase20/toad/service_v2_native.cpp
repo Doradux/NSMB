@@ -56,7 +56,8 @@ template<class Change>void deny(const char* label,StatusV2 reason,Change fn){
  check(!r.computed()&&r.candidate.version==0&&
   r.candidate.sourceEpoch==0&&r.candidate.sourceRevision==0&&
   r.candidate.rawTicks==0&&r.candidate.high32==0&&
-  r.candidate.low32==0&&r.candidate.proposedCost==0,
+  r.candidate.low32==0&&r.candidate.proposedCost==0&&
+  static_cast<uint32_t>(r.candidate.service)==0,
   "all denied response fields are zero");
  check(same(c,old),"denied pure helper does not mutate inputs");
 }

@@ -5,7 +5,7 @@ on integrated main c97e1e5e73515c18a1d0060c13c61d8e088f685f.
 Source tested with g++ native, and cached Docker Emscripten6.0.13,
 no network/pull/new SDK/sudo/original Nintendo code.
 Runtime-service V2 header sha256:
-e3b6b06cc034c5dd3ca2cfd098560db4401487fee7acd047f5410310219c5604.
+9d277b1b72ff006665a2349b6635e7783346655aefa3dcf31cd6acb11012cad8.
 Test-only probe source sha256:
 0bcbdac83abc5e542a9dc69eff073735bab35277ee4c4bb0eb627258dff8b499.
 
@@ -38,10 +38,10 @@ Reproduction:
      tests/phase20/toad/service_v2_wasm_probe.cpp \
      -o /output/toad_p20_probe.wasm'
 
-ACTUAL new output: 2590 bytes, sha256
-0b492bceaa3b97d150c29d69b9f0c4922ed83983de779da26c0f8c890fe6e2bd.
+ACTUAL new output: 2473 bytes, sha256
+0812e471fb3dd957a57406ac9b4c63ff5628438530368e6ab2533b82c39dc26e.
 Physical temporary file observed:
-/tmp/nsmb-toad20-ownwasm-JNpESE/toad_p20_probe.wasm.
+/tmp/nsmb-toad20-ownwasm-r2-hRYXQU/toad_p20_probe.wasm.
 This is disposable /tmp state, not published dist nor a joint W03 build.
 
 With NSMB_TOAD_P20_WASM set to absolute artifact path,
@@ -55,8 +55,8 @@ WebAssembly.validate, ZERO imports, explicit exports only, actual
 60,750,000Hz, 2^32 GPR halves and cost1, denies unknown ID/old
 ABI/JS/W07/MMIO/IRQ/zero claimed quota. 4096 deterministic independent
 BigInt quotient/remainder inputs inside ONE Node test method.
-Logs notes/Toad-P20-V2WasmBuild.log,
-notes/Toad-P20-V2WasmNode.log.
+Logs notes/Toad-P20-V2WasmBuildR2.log,
+notes/Toad-P20-V2WasmNodeR2.log.
 
 Same exact artifact REAL Chromium (not simulator) with localhost
 127.0.0.1 ephemeral profile server, WebCrypto SHA256 from fetched
@@ -70,7 +70,7 @@ and server removed:
     tests/phase20/toad/browser_v2_probe.mjs
 
 ACTUAL RC0 marker TOAD_P20_NEW_V2_PURE_WASM_CHROMIUM_FUNCTIONAL_PASS,
-same 0b492b... digest; notes/Toad-P20-V2WasmChromium.log.
+same 0812e471... digest; notes/Toad-P20-V2WasmChromiumR2.log.
 NO Nintendo code, native W03 ledger or guest IPC in this probe.
 Only Peach's freshly compiled later joint W03 native service fixture
 can show actual W03 private quota/ServiceId enforcement.
@@ -89,3 +89,17 @@ not test real W03 scheduler concurrency.
 Single diagnostic -O2 host run of 2,000,000 pure V2 math calls:
 elapsed_host_ns=16080732 checksum=76963717532
 (notes/Toad-P20-V2Benchmark.log). Not guaranteed timing or gameplay.
+
+## Test-driven V2 denial payload fix (2026-11-10)
+First V2 review showed CandidateV2::service initialized to the allowed
+nanos ID even in denied() results. A new source-native assertion
+required service=0 and produced a REAL RED failure after a wrong ABI
+request: "FAIL all denied response fields are zero". Fixed the default
+CandidateV2.service to static_cast<ServiceId>(0u), leaving RequestV2
+unchanged and all allowed service ID constants unchanged. Recompiled
+native 108/108 and 18/18 Node including 12 mutation RED controls.
+The source and output hashes above correspond to the corrected bytes,
+NOT the superseded first-pass test artifact (2590B, sha0b492bce...);
+no false claims about the older artifact. Recompiled offline Docker
+fresh corrected Wasm to 2473B sha0812e471...; Node 4/4 and actual
+Chromium same SHA 256 numerical oracle checks PASS.
